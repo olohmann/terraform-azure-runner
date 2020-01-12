@@ -632,6 +632,7 @@ elseif ($env:servicePrincipalId) {
     $env:ARM_SUBSCRIPTION_ID = ""
     $env:ARM_TENANT_ID = ""
 }
+elseif ($env:)
 else {
     Write-Verbose "Using az authentication context for Terraform"
 }

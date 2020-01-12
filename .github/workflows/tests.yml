@@ -15,7 +15,9 @@ jobs:
       uses: Azure/login@v1
       with:
        creds: ${{ secrets.AZURE_CREDENTIALS }}
-    - run: |
-       pwsh -c "Install-Module -Name Pester -Force"
-    - run: |
-       pwsh -c "tests/tests.ps1"
+    - name: Install Pester
+      run: Install-Module -Name Pester -Force
+      shell: pwsh
+    - name: Execute Tests
+      run: tests/tests.ps1
+      shell: pwsh
