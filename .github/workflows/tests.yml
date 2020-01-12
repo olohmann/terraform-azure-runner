@@ -22,5 +22,5 @@ jobs:
     - name: Execute Tests
       run: Invoke-Pester
       shell: pwsh
-      with:
-       creds: ${{ secrets.AZURE_CREDENTIALS }}
+      env:
+       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
