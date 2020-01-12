@@ -108,8 +108,8 @@ oEIgXTMyCILo34Fa/C6VCm2WBgz9zZO8/rHIiQm1J5zqz0DrDwKBUM9C
 =LYpS
 -----END PGP PUBLIC KEY BLOCK-----
 "@
-    if ($IsWindows) {
-        Write-Warning "Skipping SHA256SUM signature validation. Requires GPG."
+    if ($IsWindows -or $IsMacOS) {
+        Write-Warning "Skipping SHA256SUM signature validation on Windows and MacOS. Requires GPG."
     }
     else {
         $hashiCorpGpgTmpFile = Join-Path $TerraformDownloadBaseFolder -ChildPath "hashicorp.gpg"
