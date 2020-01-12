@@ -626,15 +626,26 @@ if ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_SUBSCRIPTION_ID
     Write-Verbose "Detected Terraform-specific Azure Authorization via environment variables (ARM_CLIENT_ID, ...)"
 }
 elseif ($env:servicePrincipalId) {
-    Write-Verbose "Using az authentication context for Terraform"
+    Write-Verbose "Detected Azure DevOps az configuration. Automatically setting Terraform env vars."
     $env:ARM_CLIENT_ID = $env:servicePrincipalId
     $env:ARM_CLIENT_SECRET = $env:servicePrincipalKey
-    $env:ARM_SUBSCRIPTION_ID = ""
-    $env:ARM_TENANT_ID = ""
+
+    $defaultSubscriptionDetails = az account list --all --query "[?isDefault] | [0]" | ConvertFrom-Json 
+    if ($LastExitCode -gt 0) { throw "az CLI error." }
+
+    $env:ARM_SUBSCRIPTION_ID = = $defaultSubscriptionDetails.id
+    $env:ARM_TENANT_ID = $defaultSubscriptionDetails.tenantId
 }
-elseif ($env:)
+elseif ($env:AZURE_CREDENTIALS) {
+    Write-Verbose "Detected GitHub az configuration. Automatically setting Terraform env vars. "
+    $GitHubJsonSettings = ConvertFrom-Json -InputObject $env:AZURE_CREDENTIALS
+    $env:ARM_CLIENT_ID = $GitHubJsonSettings.clientId
+    $env:ARM_CLIENT_SECRET = $GitHubJsonSettings.clientSecret
+    $env:ARM_SUBSCRIPTION_ID = $GitHubJsonSettings.subscriptionId
+    $env:ARM_TENANT_ID = $GitHubJsonSettings.tenantId
+}
 else {
-    Write-Verbose "Using az authentication context for Terraform"
+    Write-Verbose "Using az authentication context for Terraform (default for interactive login)"
 }
 
 # Fix Environment --------------------------------------------------------------
