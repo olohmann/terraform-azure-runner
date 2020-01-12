@@ -20,5 +20,7 @@ jobs:
       run: Install-Module -Name Pester -Force
       shell: pwsh
     - name: Execute Tests
-      run: tests/tests.ps1
+      run: Invoke-Pester
       shell: pwsh
+      with:
+       creds: ${{ secrets.AZURE_CREDENTIALS }}
