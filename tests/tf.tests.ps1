@@ -1,5 +1,13 @@
 #!/usr/bin/env pwsh
 
+#Requires -PSEdition Core
+#Requires -Modules @{ ModuleName="Pester"; ModuleVersion="4.0.0" }
+
+function GenerateRandomPrefix {
+    $rndPrefix = -join ((97..122) | Get-Random -Count 8 | % {[char]$_})
+    $rndPrefix
+}
+
 function TfApply {
     param (
         [Parameter(Mandatory = $true)]
@@ -7,13 +15,14 @@ function TfApply {
         $TestCase,
         [Parameter(Mandatory = $true)]
         [string]
-        $TestCaseId
+        $TestCasePrefix
     )
 
-    $env:__TF_backend_resource_group_name="$($TestCaseId)_tf_state"
-    $env:TF_VAR_resource_group_name=$TestCaseId
-    $env:TF_VAR_prefix="test"
-    & "$PSScriptRoot\..\tf.ps1" -Verbose -d -f -WorkingDirectory "$PSScriptRoot\$TestCase"
+    $path = Join-Path -Path $PSScriptRoot -ChildPath $TestCase 
+    $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
+    $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
+    
+    & "$tf" -Apply -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function TfDestroy {
@@ -23,52 +32,43 @@ function TfDestroy {
         $TestCase,
         [Parameter(Mandatory = $true)]
         [string]
-        $TestCaseId
+        $TestCasePrefix
     )
 
-    $env:__TF_backend_resource_group_name="$($TestCaseId)_tf_state"
-    $env:TF_VAR_resource_group_name=$TestCaseId
-    $env:TF_VAR_prefix="test"
-    & "$PSScriptRoot\..\tf.ps1" -Verbose -d -f -destroy -WorkingDirectory "$PSScriptRoot\$TestCase"
+    $path = Join-Path -Path $PSScriptRoot -ChildPath $TestCase
+    $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
+    $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
+    
+    & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function CleanUp {
     param (
         [Parameter(Mandatory = $true)]
         [string]
-        $TestCaseId
+        $TestCasePrefix
     )
     
-    $rgName="$($TestCaseId)_tf_state"
+    $rgName="$($TestCasePrefix)_test_util_rg"
     az group delete -n $rgName -y --output none
 }
 
 Describe "deployments" {
     It "should handle simple (one sub-deployment) deployments " {
-        TfApply -TestCase "simple" -TestCaseId "$testCaseId"
-        $exists = az group exists -n $testCaseId | ConvertFrom-Json
+        TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
+        $exists = az group exists -n $testCasePrefix | ConvertFrom-Json
         $exists | Should -Be $true
         
-        TfDestroy -TestCase "simple" -TestCaseId "$testCaseId"
-        $exists = az group exists -n $testCaseId | ConvertFrom-Json
-        $exists | Should -Be $false
-    }
-
-    It "should handle complex (multiple sub-deployments) deployments " {
-        TfApply -TestCase "multiple-sub-deployments" -TestCaseId "$testCaseId"
-        $exists = az group exists -n $testCaseId | ConvertFrom-Json
-        $exists | Should -Be $true
-        
-        TfDestroy -TestCase "multiple-sub-deployments" -TestCaseId "$testCaseId"
-        $exists = az group exists -n $testCaseId | ConvertFrom-Json
+        TfDestroy -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
+        $exists = az group exists -n "$testCasePrefix" | ConvertFrom-Json
         $exists | Should -Be $false
     }
 
     BeforeEach {
-        $testCaseId = "test_$(New-Guid)"
+        $testCasePrefix = GenerateRandomPrefix
     }
 
     AfterEach {
-        CleanUp -TestCaseId $testCaseId
+        CleanUp -TestCasePrefix $testCasePrefix
     }
 }

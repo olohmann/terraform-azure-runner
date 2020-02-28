@@ -1,4 +1,5 @@
 #!/usr/bin/env pwsh
+#Requires -PSEdition Core
 
 param (
     [Parameter(

@@ -1,3 +1,4 @@
+.idea
 
 # Created by https://www.gitignore.io/api/visualstudiocode
 # Edit at https://www.gitignore.io/?templates=visualstudiocode
@@ -82,3 +83,4 @@ override.tf.json
 # example: *tfplan*
 
 # End of https://www.gitignore.io/api/terraform
+
