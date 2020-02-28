@@ -13,7 +13,7 @@ function TfApply {
     $env:__TF_backend_resource_group_name="$($TestCaseId)_tf_state"
     $env:TF_VAR_resource_group_name=$TestCaseId
     $env:TF_VAR_prefix="test"
-    & "$PSScriptRoot\..\run_tf.ps1" -Verbose -d -f -WorkingDirectory "$PSScriptRoot\$TestCase"
+    & "$PSScriptRoot\..\tf.ps1" -Verbose -d -f -WorkingDirectory "$PSScriptRoot\$TestCase"
 }
 
 function TfDestroy {
@@ -29,7 +29,7 @@ function TfDestroy {
     $env:__TF_backend_resource_group_name="$($TestCaseId)_tf_state"
     $env:TF_VAR_resource_group_name=$TestCaseId
     $env:TF_VAR_prefix="test"
-    & "$PSScriptRoot\..\run_tf.ps1" -Verbose -d -f -destroy -WorkingDirectory "$PSScriptRoot\$TestCase"
+    & "$PSScriptRoot\..\tf.ps1" -Verbose -d -f -destroy -WorkingDirectory "$PSScriptRoot\$TestCase"
 }
 
 function CleanUp {
