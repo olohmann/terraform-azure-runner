@@ -2,6 +2,9 @@ on:
   push:
     branches:
       - master
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
 jobs:
   test:
     name: Run Integration Tests
