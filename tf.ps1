@@ -12,6 +12,7 @@ param (
             HelpMessage = "EnvironmentName is a lowercase, alphanumeric name, starting with a letter.")]
     [Alias('e')]
     [ValidatePattern('(?-i:^[a-z][a-z0-9]+$)')]
+    [ValidateLength(1,8)]
     [string]
     $EnvironmentName = "dev",
 
@@ -19,6 +20,7 @@ param (
             Mandatory = $false,
             HelpMessage = "Prefix is a lowercase, alphanumeric name, starting with a letter.")]
     [ValidatePattern('(?-i:^[a-z][a-z0-9]+$)')]
+    [ValidateLength(1,8)]
     [string]
     $Prefix = "fabrikam",
 
@@ -53,8 +55,8 @@ param (
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
 
-$ScriptVersion = [version]"2.0.0"
-$TerrafomMinimumVersion = [version]"0.12.18"
+$ScriptVersion = [version]"2.1.0"
+$TerrafomMinimumVersion = [version]"0.12.21"
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
 $TerraformPlanPath = "terraform.tfplan"
 $TerraformOutputPath = "output.json"

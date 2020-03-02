@@ -63,12 +63,25 @@ Describe "deployments" {
         $exists = az group exists -n "$testCasePrefix" | ConvertFrom-Json
         $exists | Should -Be $false
     }
-
+   
     BeforeEach {
         $testCasePrefix = GenerateRandomPrefix
     }
 
     AfterEach {
         CleanUp -TestCasePrefix $testCasePrefix
+    }
+}
+
+Describe "input validation" {
+    It "Should not accept prefix > 8 chars." {
+        { TfApply -TestCase "simple/01_tf" -TestCasePrefix "x12345678" } |  Should -Throw
+    }
+
+    It "Should not accept prefix bad chars." {
+        { TfApply -TestCase "simple/01_tf" -TestCasePrefix "space is bad" } |  Should -Throw
+        { TfApply -TestCase "simple/01_tf" -TestCasePrefix "UPPER" } |  Should -Throw
+        { TfApply -TestCase "simple/01_tf" -TestCasePrefix "u-u" } |  Should -Throw
+        { TfApply -TestCase "simple/01_tf" -TestCasePrefix "u_u" } |  Should -Throw
     }
 }
