@@ -3,7 +3,7 @@ on:
     branches:
       - master
     paths-ignore:
-      - "**/*.md"
+      - "*.md"
       - "docs/**"
 jobs:
   test:
