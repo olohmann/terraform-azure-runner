@@ -391,7 +391,7 @@ function CreateOrUpdateTerraformBackend {
     $accountKeyResponse = az storage account keys list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 
-    az storage container create --account-name $global:TfStateStorageAccountName --account-key $accountKeyResponse[0].value --name $global:TfStateContainerName --public-access "off" --auth-mode key --output none
+    az storage container create --account-name $global:TfStateStorageAccountName --account-key $accountKeyResponse[0].value --name $global:TfStateContainerName --auth-mode key --output none
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 }
 
