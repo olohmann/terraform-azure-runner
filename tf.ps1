@@ -119,6 +119,9 @@ if ($UtilResourceGroupName -eq "") {
 
 $Location = $Location.ToLower()
 $Location = $Location -Replace " "
+if ($Location -eq "$(location)") {
+    $Location = "westeurope"
+}
 $TargetPath = Resolve-Path $TargetPath
 
 $global:TfStateStorageAccountName = ""
