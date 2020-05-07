@@ -106,7 +106,7 @@ param (
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
 
-$ScriptVersion = [version]"2.2.0"
+$ScriptVersion = [version]"2.3.0"
 $TerrafomMinimumVersion = [version]"0.12.24"
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
 $TerraformPlanPath = "terraform.tfplan"
@@ -119,6 +119,15 @@ if ($UtilResourceGroupName -eq "") {
 
 $Location = $Location.ToLower()
 $Location = $Location -Replace " "
+
+# If a non-expanded Azure DevOps Variable assignment was found, print a
+# warning and continue with the default.
+if ($Location -match '\$\([^)]*\)')
+{
+    $Location = "westeurope"
+    Write-Warning "Found un-expanded Azure DevOps Variable assigned to -Location. Fallback to 'westeurope'"
+}
+
 $TargetPath = Resolve-Path $TargetPath
 
 $global:TfStateStorageAccountName = ""
