@@ -117,6 +117,16 @@ if ($UtilResourceGroupName -eq "") {
     $UtilResourceGroupName = "$($Prefix)_$($EnvironmentName)_util_rg".ToLower()
 }
 
+# Check Location parameter to avoid Error:
+#The specified location '/home/vsts/work/1/s' is invalid. A location must consist of characters, whitespace, digit, or following symbols '(,)'.
+$CurrentLocation = get-location
+Write-Verbose "Current working location: $CurrentLocation"
+if ($Location -match $CurrentLocation)
+{
+    Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'"
+    $Location = "westeurope"
+}
+
 $Location = $Location.ToLower()
 $Location = $Location -Replace " "
 
