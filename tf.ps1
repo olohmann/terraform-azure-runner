@@ -109,7 +109,7 @@ param (
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
 
-$ScriptVersion = [version]"2.3.0"
+$ScriptVersion = [version]"2.4.0"
 $TerrafomMinimumVersion = [version]$TfVersion
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
 $TerraformPlanPath = "terraform.tfplan"
@@ -372,6 +372,7 @@ function TryUploadTestBlob {
 }
 
 function CreateOrUpdateTerraformBackend {
+    Write-Verbose "[Terraform State] CreateOrUpdate Terrafrom State Storage"
     az group create --name "$UtilResourceGroupName" --location "$Location" --output none
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 
@@ -383,44 +384,65 @@ function CreateOrUpdateTerraformBackend {
 
     $global:TfStateStorageAccountName = "tf$($Prefix)$($EnvironmentName)$($tf_hash_suffix)"
 
-    az storage account create --name $global:TfStateStorageAccountName --resource-group $UtilResourceGroupName --location $Location --sku "Standard_LRS" --kind "BlobStorage" --access-tier "Hot" --encryption-service "blob" --encryption-service "file" --https-only "true" --default-action "Allow" --bypass "None" --output none --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix"
+    az storage account create --name $global:TfStateStorageAccountName `
+        --resource-group $UtilResourceGroupName `
+        --location $Location --sku "Standard_LRS" `
+        --kind "BlobStorage" --access-tier "Hot" `
+        --encryption-service "blob" `
+        --encryption-service "file" `
+        --https-only "true" `
+        --default-action "Allow" `
+        --bypass "None" `
+        --output none `
+        --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix"
+
     if ($LastExitCode -gt 0) { throw "az CLI error." }
-
-    if ($SkipFirewallUpdate) {
-        Write-Verbose "[Terraform State] Skip updating Azure Storage firewall configuration..."
-    }
-    else
-    {
-        Write-Verbose "[Terraform State] Updating firewall configuration..."
-        $saUpdateRetryCount = 0
-        $saUpdateSuccessful = $false
-        for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-            Write-Verbose "[Terraform State] Waiting for update..."
-            Start-Sleep -Seconds 2
-            $saShowResponse = az storage account show --name $global:TfStateStorageAccountName | ConvertFrom-Json
-            if ($saShowResponse.networkRuleSet.defaultAction.ToLower() -eq "allow") {
-                Write-Verbose "[Terraform State] Successfully configured firewall... Waiting 10secs for synchronization..."
-                $saUpdateSuccessful = $true
-                Start-Sleep -Seconds 10
-            }
-        }
-
-        if (!$saUpdateSuccessful) {
-            throw "[Terraform State] Failed to temporarily de-activate the terraform state storage account's firewall."
-        }
-    }
 
     $accountKeyResponse = az storage account keys list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 
-    az storage container create --account-name $global:TfStateStorageAccountName --account-key $accountKeyResponse[0].value --name $global:TfStateContainerName --auth-mode key --output none
+    $accountKeyValue = $accountKeyResponse[0].value
+
+    if ($SkipFirewallUpdate) {
+        Write-Verbose "[Terraform State] Skip firewall re-configuration..."
+    }
+    else
+    {
+        Write-Verbose "[Terraform State] Waiting for completing firewall configuration..."
+        $saUpdateRetryCount = 0
+        $saUpdateSuccessful = $false
+        try {
+            for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
+                # This query fails if the FW configuration is not yet completed.
+                az storage container list --account-key $accountKeyValue --account-name $global:TfStateStorageAccountName
+                if ($LastExitCode -gt 0) 
+                { 
+                    Write-Verbose "[Terraform State] Waiting for completing firewall configuration ($($saUpdateRetryCount + 1)/10)..."
+                    Start-Sleep -Seconds 3
+                }
+                else 
+                {
+                    $saUpdateSuccessful = $true
+                }
+            }
+        } catch {
+        }
+
+        if (!$saUpdateSuccessful) {
+            throw "[Terraform State] Failed to temporarily de-activate the terraform state storage account's firewall."
+        } else {
+            Write-Verbose "[Terraform State] Successfully configured firewall on storage account."
+        }
+    }
+
+    az storage container create --account-name $global:TfStateStorageAccountName --account-key $accountKeyValue --name $global:TfStateContainerName --auth-mode key --output none
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 }
 
 function LockdownTerraformBackend {
+    Write-Verbose "[Terraform State] Locking Terraform State Storage (Firewall Update)..."
     $existingNetworkRulesResponse = az storage account network-rule list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
     if ($LastExitCode -gt 0) { throw "az CLI error." }
-    Write-Verbose "[Terraform State] Rewriting network rules..."
     foreach ($ipRule in $existingNetworkRulesResponse.ipRules) {
         Write-Verbose "[Terraform State] Dropping $($ipRule.ipAddressOrRange)"
         az storage account network-rule remove --resource-group $UtilResourceGroupName --account-name $global:TfStateStorageAccountName --ip-address $ipRule.ipAddressOrRange --output none
@@ -820,33 +842,38 @@ if ($Validate) {
 
 EnsureAzureCliContext
 
-
 if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
-    CreateOrUpdateTerraformBackend
-    CleanTerraformDirectory -Path $TargetPath
-    InitTerraformWithRemoteBackend -Path $TargetPath
-    SwitchToTerraformWorskpace -Path $TargetPath -Workspace $EnvironmentName
+    try {
+        CreateOrUpdateTerraformBackend
+        CleanTerraformDirectory -Path $TargetPath
+        InitTerraformWithRemoteBackend -Path $TargetPath
+        SwitchToTerraformWorskpace -Path $TargetPath -Workspace $EnvironmentName
 
-    if ($Init) {
-        # Nothing further to do.
-    } elseif ($Destroy) {
-        TerraformDestroy -Path $TargetPath
-    } elseif ($Plan) {
-        TerraformPlan -Path $TargetPath
-    } elseif ($Apply) {
-        if (!$UseExistingTerraformPlan)
-        {
+        if ($Init) {
+            # Nothing further to do.
+        } elseif ($Destroy) {
+            TerraformDestroy -Path $TargetPath
+        } elseif ($Plan) {
             TerraformPlan -Path $TargetPath
+        } elseif ($Apply) {
+            if (!$UseExistingTerraformPlan)
+            {
+                TerraformPlan -Path $TargetPath
+            }
+            TerraformApply -Path $TargetPath
+        } 
+        
+        if ($Output) {
+            TerraformOutput -Path $TargetPath
         }
-        TerraformApply -Path $TargetPath
-    } elseif ($Output) {
-        TerraformOutput -Path $TargetPath
-    }
 
-    if (!$LeaveFirewallOpen) {
-        LockdownTerraformBackend
+    } 
+    finally 
+    {
+        if (!$LeaveFirewallOpen) {
+            LockdownTerraformBackend
+        }
     }
 } else {
-    Write-Warning "Nothing modified or initialized. Please specify, -Init, -Destroy, -Plan or -Apply"
+    Write-Warning "Nothing modified or initialized. Please specify, -Init, -Destroy, -Plan, -Output or -Apply"
 }
-
