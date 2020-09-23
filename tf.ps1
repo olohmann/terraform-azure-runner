@@ -59,6 +59,9 @@ param (
     # one. Not recommended to use, instead follow the conventional defaults.
     [Parameter(Mandatory = $false)][string]$UtilResourceGroupName = "",
 
+    # The Terraform binary version to use.
+    [Parameter(Mandatory = $false)][string]$TfVersion = "0.13.3",
+
     # Do not print colored console ouptut when set.
     [switch]$NoColor = $false,
 
@@ -107,7 +110,7 @@ Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
 
 $ScriptVersion = [version]"2.3.0"
-$TerrafomMinimumVersion = [version]"0.12.24"
+$TerrafomMinimumVersion = [version]$TfVersion
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
 $TerraformPlanPath = "terraform.tfplan"
 $TerraformOutputPath = "output.json"
