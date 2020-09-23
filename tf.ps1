@@ -62,6 +62,9 @@ param (
     # The Terraform binary version to use.
     [Parameter(Mandatory = $false)][string]$TfVersion = "0.13.3",
 
+    # Application Insights Instrumentation Key for Metrics.
+    [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
+
     # Do not print colored console ouptut when set.
     [switch]$NoColor = $false,
 
@@ -313,6 +316,78 @@ function DownloadCurrentTerraformVersionToTemporaryLocation {
         $tfExe = Join-Path $tmpDirectory -ChildPath "terraform"
         chmod +x $tfExe
         return $tfExe 
+    }
+}
+
+function SendTelemetry
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage='Specify the message to log.')]
+        [System.String]
+        [ValidateNotNullOrEmpty()]
+        $Message,
+
+        [Parameter(
+            Mandatory=$true,
+            HelpMessage='Specify the message severity. Acceptable values are Verbose, Information, Warning, Error, and Critical.')]
+        [System.String]
+        [ValidateSet('Verbose','Information','Warning','Error','Critical')]
+        $Severity,
+
+        [Parameter(Mandatory=$false)]
+        [Hashtable]
+        $CustomProperties
+    )
+    Process
+    {
+        if (!$ApplicationInsightsInstrumentationKey) 
+        {
+            Write-Verbose "[Application Insights] Sending metrics to application insights is disabled (no instrumentation key present)."
+        }
+        else {
+            Write-Verbose "[Application Insights] Sending metrics to application insights ($($ApplicationInsightsInstrumentationKey))."
+            # See: https://github.com/microsoft/ApplicationInsights-Home/blob/master/EndpointSpecs/ENDPOINT-PROTOCOL.md
+            $AppInsightsIngestionEndpoint = "https://dc.services.visualstudio.com/v2/track"
+            
+            if ($PSBoundParameters.ContainsKey('CustomProperties') -and $CustomProperties.Count -gt 0)
+            {
+                $customPropertiesObj = [PSCustomObject]$CustomProperties
+            }
+            else
+            {
+                $customPropertiesObj = [PSCustomObject]@{}
+            }
+
+            $bodyObject = [PSCustomObject]@{
+                'name' = "Microsoft.ApplicationInsights.$($ApplicationInsightsInstrumentationKey).Trace"
+                'time' = ([System.DateTime]::UtcNow.ToString('o'))
+                'iKey' = $ApplicationInsightsInstrumentationKey
+                'tags' = [PSCustomObject]@{
+                    'ai.cloud.roleInstance' = 'tf'
+                    'ai.internal.sdkVersion' = 'tf'
+                }
+                'data' = [PSCustomObject]@{
+                    'baseType' = 'MessageData'
+                    'baseData' = [PSCustomObject]@{
+                        'ver' = '2'
+                        'message' = $Message
+                        'severityLevel' = $Severity
+                        'properties' = $customPropertiesObj
+                    }
+                }
+            }
+
+            $bodyAsCompressedJson = $bodyObject | ConvertTo-JSON -Depth 10 -Compress
+            $headers = @{
+                'Content-Type' = 'application/x-json-stream';
+            }
+
+            Invoke-RestMethod -Uri $AppInsightsIngestionEndpoint -Method Post -Headers $headers -Body $bodyAsCompressedJson
+        }
     }
 }
 
@@ -762,6 +837,31 @@ function PatchTerraformEnvironmentVariables {
     Write-Verbose "============================================================================="
 }
 
+function SendMetricsToApplicationInsights {
+    $tfProvidersHashSet = New-Object System.Collections.Generic.HashSet[string]
+    $tfProvidersRaw = Get-ChildItem -Path . -Filter terraform-provider* -Recurse -ErrorAction SilentlyContinue -Force
+    foreach ($tfProvider in $tfProvidersRaw) {
+        $tfProvidersHashSet.Add($tfProvider.Name)
+    }
+
+    $tfProviders = New-Object string[] $tfProvidersHashSet.Count
+    $tfProvidersHashSet.CopyTo($tfProviders)
+
+    $metrics = @{
+        'timestampUtc' = Get-Date -Format o
+        'scriptVersion' = $ScriptVersion.ToString()
+        'terraformVersion' = $TfVersion
+        'teamFoundationCollectionUri' = $env:System_TeamFoundationCollectionUri
+        'teamProject' = $env:System_TeamProject
+        'teamProjectId' = $env:System_TeamProjectId
+        'buildNumber' = $env:Build_BuildNumber
+        'buildId' = $env:Build_BildId
+        'tfProviders' = $tfProviders
+    }
+
+    SendTelemetry -Message "Metrics" -Severity "Information" -CustomProperties $metrics
+}
+
 
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
@@ -826,6 +926,7 @@ else {
 ValidateTerraformMinimumVersion
 CleanTerraformDirectory -Path $TargetPath
 InitTerraformWithLocalBackend -Path $TargetPath
+SendMetricsToApplicationInsights
 $tfValidateError = RunTerraformValidate -Path $TargetPath
 
 # Run deployment on all Subdeployments -----------------------------------------
