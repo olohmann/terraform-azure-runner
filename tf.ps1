@@ -489,7 +489,7 @@ function CreateOrUpdateTerraformBackend {
         try {
             for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
                 # This query fails if the FW configuration is not yet completed.
-                az storage container list --account-key $accountKeyValue --account-name $global:TfStateStorageAccountName
+                az storage container list --account-key $accountKeyValue --account-name $global:TfStateStorageAccountName --output none
                 if ($LastExitCode -gt 0) 
                 { 
                     Write-Verbose "[Terraform State] Waiting for completing firewall configuration ($($saUpdateRetryCount + 1)/10)..."
