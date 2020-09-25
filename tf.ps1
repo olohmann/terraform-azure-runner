@@ -841,11 +841,11 @@ function SendMetricsToApplicationInsights {
     $tfProvidersHashSet = New-Object System.Collections.Generic.HashSet[string]
     $tfProvidersRaw = Get-ChildItem -Path . -Filter terraform-provider* -Recurse -ErrorAction SilentlyContinue -Force
     foreach ($tfProvider in $tfProvidersRaw) {
-        $tfProvidersHashSet.Add($tfProvider.Name)
+        $tfProvidersHashSet.Add($tfProvider.Name) | Out-Null
     }
 
     $tfProviders = New-Object string[] $tfProvidersHashSet.Count
-    $tfProvidersHashSet.CopyTo($tfProviders)
+    $tfProvidersHashSet.CopyTo($tfProviders) | Out-Null
 
     $metrics = @{
         'timestampUtc' = Get-Date -Format o
