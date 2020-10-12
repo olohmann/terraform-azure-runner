@@ -949,6 +949,7 @@ if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
         CleanTerraformDirectory -Path $TargetPath
         InitTerraformWithRemoteBackend -Path $TargetPath
         SwitchToTerraformWorskpace -Path $TargetPath -Workspace $EnvironmentName
+        InitTerraformWithRemoteBackend -Path $TargetPath
 
         if ($Init) {
             # Nothing further to do.
