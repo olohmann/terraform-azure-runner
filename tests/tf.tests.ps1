@@ -22,7 +22,7 @@ function TfApply {
     $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
     $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
     
-    & "$tf" -Apply -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
+    & "$tf" -Apply -Prefix "$TestCasePrefix" -EnvironmentName "test" -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function TfDestroy {
@@ -39,7 +39,7 @@ function TfDestroy {
     $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
     $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
     
-    & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
+    & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function CleanUp {

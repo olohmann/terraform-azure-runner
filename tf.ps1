@@ -60,7 +60,7 @@ param (
     [Parameter(Mandatory = $false)][string]$UtilResourceGroupName = "",
 
     # The Terraform binary version to use.
-    [Parameter(Mandatory = $false)][string]$TfVersion = "0.13.3",
+    [Parameter(Mandatory = $false)][string]$TfVersion = "0.13.4",
 
     # Application Insights Instrumentation Key for Metrics.
     [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
@@ -93,9 +93,6 @@ param (
     # when finishing the deployment process.
     [switch]$LeaveFirewallOpen = $false,
     
-    # Do no change the current firewall setup.
-    [switch]$SkipFirewallUpdate = $false,
-
     # Print the script's version and exit.
     [switch]$Version = $false,
 
@@ -111,8 +108,33 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
+$ScriptVersion = [version]"3.0.0"
 
-$ScriptVersion = [version]"2.4.0"
+function Write-Log {
+    [CmdletBinding()]
+    param(
+        [Parameter()]
+        [string]$Message,
+ 
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [ValidateSet('Information','Warning','Error')]
+        [string]$Severity = 'Information'
+    )
+ 
+    if ($Severity -eq 'Information') {
+        Write-Host -ForegroundColor Magenta $Message
+    }
+
+    if ($Severity -eq 'Warning') {
+        Write-Warning $Message
+    }
+
+    if ($Severity -eq 'Error') {
+        Write-Error $Message
+    }
+}
+
 $TerrafomMinimumVersion = [version]$TfVersion
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
 $TerraformPlanPath = "terraform.tfplan"
@@ -124,9 +146,8 @@ if ($UtilResourceGroupName -eq "") {
 }
 
 # Check Location parameter to avoid Error:
-#The specified location '/home/vsts/work/1/s' is invalid. A location must consist of characters, whitespace, digit, or following symbols '(,)'.
-$CurrentLocation = get-location
-Write-Verbose "Current working location: $CurrentLocation"
+# The specified location '/home/vsts/work/1/s' is invalid. A location must consist of characters, whitespace, digit, or following symbols '(,)'.
+$CurrentLocation = Get-Location
 if ($Location -match $CurrentLocation)
 {
     Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'"
@@ -149,33 +170,84 @@ $TargetPath = Resolve-Path $TargetPath
 $global:TfStateStorageAccountName = ""
 $global:TfStateContainerName = "tf-state"
 
+Write-Log ""
+Write-Log "[Information]"
+Write-Log "Script Version                  $ScriptVersion"
+Write-Log "Current working location:       $CurrentLocation"
+Write-Log ""
+Write-Log "[Provided Options]"
+Write-Log "TargetPath:                     $TargetPath"
+Write-Log "EnvironmentName:                $EnvironmentName"
+Write-Log "Prefix:                         $Prefix"
+Write-Log "Location:                       $Location"
+Write-Log "VarFile:                        $VarFile"
+Write-Log "UtilResourceGroupName:          $UtilResourceGroupName"
+Write-Log ""
+Write-Log "[Automatically Created TF Environment Variables]"
+Write-Log "TF_VAR_prefix                   $Prefix"
+Write-Log "TF_VAR_location                 $Location"
+Write-Log "TF_VAR_util_resource_group_name $UtilResourceGroupName"
+Write-Log ""
+
 if ($VarFile) {
     if ([System.IO.File]::Exists($VarFile)) {
         $VarFile = Resolve-Path $VarFile
     } else {
-        Write-Warning "Provided VarFile to not-existing path. Ignoring..."
+        Write-Log "Provided VarFile points to not-existing path. Ignoring..."
     }
 }
-
-Write-Verbose "Provided Options"
-Write-Verbose "================"
-Write-Verbose "TargetPath:                     $TargetPath"
-Write-Verbose "EnvironmentName:                $EnvironmentName"
-Write-Verbose "Prefix:                         $Prefix"
-Write-Verbose "Location:                       $Location"
-Write-Verbose "VarFile:                        $VarFile"
-Write-Verbose "UtilResourceGroupName:          $UtilResourceGroupName"
-Write-Verbose ""
-Write-Verbose "Setting Environment"
-Write-Verbose "==================="
-Write-Verbose "TF_VAR_prefix                   $Prefix"
-Write-Verbose "TF_VAR_location                 $Location"
-Write-Verbose "TF_VAR_util_resource_group_name $UtilResourceGroupName"
-Write-Verbose ""
 
 $env:TF_VAR_prefix = $Prefix
 $env:TF_VAR_location = $Location
 $env:TF_VAR_util_resource_group_name = $UtilResourceGroupName
+
+# this function wraps native command Execution
+# for more information, read https://mnaoumov.wordpress.com/2015/01/11/execution-of-external-commands-in-powershell-done-right/
+function Start-NativeExecution
+{
+    param(
+        [scriptblock]$sb,
+        [switch]$IgnoreExitcode,
+        [switch]$VerboseOutputOnError
+    )
+
+    $backupEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        if($VerboseOutputOnError.IsPresent)
+        {
+            $output = & $sb 2>&1
+        }
+        else
+        {
+            & $sb
+        }
+
+        # note, if $sb doesn't have a native invocation, $LASTEXITCODE will
+        # point to the obsolete value
+        if ($LASTEXITCODE -ne 0 -and -not $IgnoreExitcode) {
+            if($VerboseOutputOnError.IsPresent -and $output)
+            {
+                $output | Out-String | Write-Verbose -Verbose
+            }
+
+            # Get caller location for easier debugging
+            $caller = Get-PSCallStack -ErrorAction SilentlyContinue
+            if($caller)
+            {
+                $callerLocationParts = $caller[1].Location -split ":\s*line\s*"
+                $callerFile = $callerLocationParts[0]
+                $callerLine = $callerLocationParts[1]
+
+                $errorMessage = "Execution of {$sb} by ${callerFile}: line $callerLine failed with exit code $LASTEXITCODE"
+                throw $errorMessage
+            }
+            throw "Execution of {$sb} failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        $ErrorActionPreference = $backupEAP
+    }
+}
 
 function GetLocalTerraformInstallation() {
     $tf = $null
@@ -198,6 +270,81 @@ function New-TemporaryDirectory {
     New-Item -ItemType Directory -Path (Join-Path $parent $name)
 }
 
+function Get-ArmAuthHeaders {
+    $token = az account get-access-token | ConvertFrom-Json
+    if ($LastExitCode -gt 0) { throw "az CLI error." }
+
+    $headers = @{
+        'Authorization' = "Bearer $($token.accessToken)"
+        'Content-Type' = 'application/json' 
+        'Accept' = 'application/json' 
+    }
+
+    $headers
+}
+
+function Open-StorageAccountFirewall {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $SubscriptionId,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $StorageAccountName
+    )
+
+    Write-Log "Opening storage account firewall..."
+    $headers = Get-ArmAuthHeaders
+    $armUrl = "https://management.azure.com/subscriptions/$($SubscriptionId)/resourceGroups/$($ResourceGroupName)/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
+
+    $body = @{
+        'properties'= @{
+            'networkAcls' = @{
+                'defaultAction' = 'Allow'
+            }
+        }
+    }
+
+    Invoke-RestMethod -Uri $armUrl -Headers $headers -Method PATCH -Body ($body | ConvertTo-Json -Depth 100) | Out-Null
+    Write-Log "Storage account firewall opened."
+}
+
+function Close-StorageAccountFirewall {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $SubscriptionId,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $StorageAccountName
+    )
+
+    Write-Log "Closing storage account firewall..."
+    $headers = Get-ArmAuthHeaders
+    $armUrl = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
+
+    $body = @{
+        'properties'= @{
+            'networkAcls' = @{
+                'defaultAction' = 'Deny'
+            }
+        }
+    }
+
+    Invoke-RestMethod -Uri $armUrl -Headers $headers -Method PATCH -Body ($body | ConvertTo-Json -Depth 100) | Out-Null
+    Write-Log "Closed storage account firewall successfully."
+}
+
 function GetTerraformOsName {
     if ($IsLinux) {
         return "linux"
@@ -209,7 +356,7 @@ function GetTerraformOsName {
         return "windows"
     }
     else {
-        Write-Error "This script is executed in an unsupported OS."
+        throw "This script is executed in an unsupported OS."
     }
 }
 
@@ -261,14 +408,13 @@ oEIgXTMyCILo34Fa/C6VCm2WBgz9zZO8/rHIiQm1J5zqz0DrDwKBUM9C
 "@
     # TODO: Test for gpg in path instead.
     if ($IsWindows -or $IsMacOS) {
-        Write-Warning "Skipping SHA256SUM signature validation on Windows and MacOS. Requires GPG."
+        Write-Log "Skipping SHA256SUM signature validation on Windows and MacOS. Requires GPG."
     }
     else {
         $hashiCorpGpgTmpFile = Join-Path $TerraformDownloadBaseFolder -ChildPath "hashicorp.gpg"
         Set-Content -Path $hashiCorpGpgTmpFile -Value $HashiCorpGpgSig
-        gpg --quiet --no-verbose --batch --no-tty --import $hashiCorpGpgTmpFile
-        gpg --quiet --no-verbose --batch --no-tty --verify  $tfShaSumsSig $tfShaSums
-        if ($LastExitCode -gt 0) { throw "GPG signature validation of Terraform's SHA256 sums failed." }
+        Start-NativeExecution { gpg --quiet --no-verbose --batch --no-tty --import $hashiCorpGpgTmpFile }
+        Start-NativeExecution { gpg --quiet --no-verbose --batch --no-tty --verify  $tfShaSumsSig $tfShaSums }
     }
 
     $hash = Get-FileHash -Path $TerraformZipFilePath -Algorithm 'SHA256'
@@ -301,12 +447,12 @@ function DownloadCurrentTerraformVersionToTemporaryLocation {
     $outputShaSums = Join-Path -Path $tmpDirectory -ChildPath "terraform_SHA265SUMS"
     $outputShaSumsSig = Join-Path -Path $tmpDirectory -ChildPath "terraform_SHA265SUMS.sig"
 
-    Invoke-WebRequest -Uri $uriBinary -OutFile $outputBinary
-    Invoke-WebRequest -Uri $uriShaSums -OutFile $outputShaSums
-    Invoke-WebRequest -Uri $uriShaSumsSig -OutFile $outputShaSumsSig
+    Invoke-WebRequest -Uri $uriBinary -OutFile $outputBinary | Out-Null
+    Invoke-WebRequest -Uri $uriShaSums -OutFile $outputShaSums | Out-Null
+    Invoke-WebRequest -Uri $uriShaSumsSig -OutFile $outputShaSumsSig | Out-Null
 
     VerifyTerraformSignature -TerraformDownloadBaseFolder $tmpDirectory -TerraformZipFilePath $outputBinary
-    Expand-Archive -Path $outputBinary -DestinationPath $tmpDirectory
+    Expand-Archive -Path $outputBinary -DestinationPath $tmpDirectory | Out-Null
 
     if ($IsWindows) {
         $tfExe = Join-Path $tmpDirectory -ChildPath "terraform.exe"
@@ -346,10 +492,10 @@ function SendTelemetry
     {
         if (!$ApplicationInsightsInstrumentationKey) 
         {
-            Write-Verbose "[Application Insights] Sending metrics to application insights is disabled (no instrumentation key present)."
+            Write-Log "Sending metrics to APPLICATION INSIGHTS is disabled (no instrumentation key present)."
         }
         else {
-            Write-Verbose "[Application Insights] Sending metrics to application insights ($($ApplicationInsightsInstrumentationKey))."
+            Write-Log "Sending metrics to APPLICATION INSIGHTS ($($ApplicationInsightsInstrumentationKey))."
             # See: https://github.com/microsoft/ApplicationInsights-Home/blob/master/EndpointSpecs/ENDPOINT-PROTOCOL.md
             $AppInsightsIngestionEndpoint = "https://dc.services.visualstudio.com/v2/track"
             
@@ -447,19 +593,17 @@ function TryUploadTestBlob {
 }
 
 function CreateOrUpdateTerraformBackend {
-    Write-Verbose "[Terraform State] CreateOrUpdate Terrafrom State Storage"
-    az group create --name "$UtilResourceGroupName" --location "$Location" --output none
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
+    Write-Log "CreateOrUpdate Terraform State Storage"
+    Start-NativeExecution { az group create --name "$UtilResourceGroupName" --location "$Location" --output none }
 
-    $azRes = az group show --name "$UtilResourceGroupName" --output json | ConvertFrom-Json
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
+    $azRes = Start-NativeExecution { az group show --name "$UtilResourceGroupName" --output json } | ConvertFrom-Json 
 
     $tf_backend_resource_group_id = $azRes.Id
     $tf_hash_suffix = GetSha256 -InputString $tf_backend_resource_group_id -TrimTo 6
 
     $global:TfStateStorageAccountName = "tf$($Prefix)$($EnvironmentName)$($tf_hash_suffix)"
 
-    az storage account create --name $global:TfStateStorageAccountName `
+   Start-NativeExecution { az storage account create --name $global:TfStateStorageAccountName `
         --resource-group $UtilResourceGroupName `
         --location $Location --sku "Standard_LRS" `
         --kind "BlobStorage" --access-tier "Hot" `
@@ -469,82 +613,25 @@ function CreateOrUpdateTerraformBackend {
         --default-action "Allow" `
         --bypass "None" `
         --output none `
-        --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix"
-
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
-
-    $accountKeyResponse = az storage account keys list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
-
-    $accountKeyValue = $accountKeyResponse[0].value
-
-    if ($SkipFirewallUpdate) {
-        Write-Verbose "[Terraform State] Skip firewall re-configuration..."
-    }
-    else
-    {
-        Write-Verbose "[Terraform State] Waiting for completing firewall configuration..."
-        $saUpdateRetryCount = 0
-        $saUpdateSuccessful = $false
-        try {
-            for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-                # This query fails if the FW configuration is not yet completed.
-                az storage container list --account-key $accountKeyValue --account-name $global:TfStateStorageAccountName --output none
-                if ($LastExitCode -gt 0) 
-                { 
-                    Write-Verbose "[Terraform State] Waiting for completing firewall configuration ($($saUpdateRetryCount + 1)/10)..."
-                    Start-Sleep -Seconds 3
-                }
-                else 
-                {
-                    $saUpdateSuccessful = $true
-                }
-            }
-        } catch {
-        }
-
-        if (!$saUpdateSuccessful) {
-            throw "[Terraform State] Failed to temporarily de-activate the terraform state storage account's firewall."
-        } else {
-            Write-Verbose "[Terraform State] Successfully configured firewall on storage account."
-        }
-    }
-
-    az storage container create --account-name $global:TfStateStorageAccountName --account-key $accountKeyValue --name $global:TfStateContainerName --auth-mode key --output none
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
-}
-
-function LockdownTerraformBackend {
-    Write-Verbose "[Terraform State] Locking Terraform State Storage (Firewall Update)..."
-    $existingNetworkRulesResponse = az storage account network-rule list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
-    foreach ($ipRule in $existingNetworkRulesResponse.ipRules) {
-        Write-Verbose "[Terraform State] Dropping $($ipRule.ipAddressOrRange)"
-        az storage account network-rule remove --resource-group $UtilResourceGroupName --account-name $global:TfStateStorageAccountName --ip-address $ipRule.ipAddressOrRange --output none
-        if ($LastExitCode -gt 0) { throw "az CLI error." }
-    }
-
-    Write-Verbose "[Terraform State] Set storage account firewall to `"default-action: Deny`"..."
-    az storage account update --name $global:TfStateStorageAccountName --default-action "Deny" --output none
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
+        --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix" }
 }
 
 function EnsureAzureCliContext () {
-    if ($Force) {
-        return
-    }
-
-    $defaultSubscriptionDetails = az account list --all --query "[?isDefault] | [0]" | ConvertFrom-Json 
-    if ($LastExitCode -gt 0) { throw "az CLI error." }
+    $defaultSubscriptionDetails = Start-NativeExecution { az account list --all --query "[?isDefault] | [0]" } | ConvertFrom-Json 
 
     $defaultSubscriptionId = $defaultSubscriptionDetails.id;
     $defaultSubscriptionName = $defaultSubscriptionDetails.name;
 
-    Write-Host ""
+    if ($Force) {
+        Write-Log "Subscription ID = $defaultSubscriptionId"
+        Write-Log "Subscription Name = $defaultSubscriptionName"
+        return
+    }
+
     Write-Host "Detected the following Azure configuration:"
     Write-Host "Subscription ID = $defaultSubscriptionId"
     Write-Host "Subscription Name = $defaultSubscriptionName"
-    Write-Host ""
+
 
     $confirmation = Read-Host "Continue using this subscription? (y/n)"
     if ($confirmation.ToLower() -ne 'y') {
@@ -564,25 +651,23 @@ function SwitchToTerraformWorskpace {
         $Workspace
     )
 
-    Write-Verbose "[Terraform] Switch Workspace: $Path"
+    Write-Log "Switch Workspace: $Path"
 
     Push-Location
     try {
         Set-Location -Path $Path
-        $tfWorkspace = &"$TerraformPath" workspace show
-        if ($LastExitCode -gt 0) { throw "terraform error." }
+        $tfWorkspace = Start-NativeExecution { &"$TerraformPath" workspace show } 
 
-        Write-Verbose "[Terraform] Current workspace: $tfWorkspace"
+        Write-Log "Current workspace: $tfWorkspace"
         if ($tfWorkspace.ToLower() -eq $Workspace.ToLower()) {
-            Write-Verbose "[Terraform] No workspace switch required."
+            Write-Log "No workspace switch required."
         }
         else {
-            $tfWorkspaceListString = &"$TerraformPath" workspace list
-            if ($LastExitCode -gt 0) { throw "terraform error." }
+            $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
             $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
             $found = $false
             foreach ($tfWorkspaceItem in $tfWorkspaceList) {
-                Write-Verbose "[Terraform] Found workspace $tfWorkspaceItem"
+                Write-Log "Found workspace $tfWorkspaceItem"
                 if ($tfWorkspaceItem.ToLower().Contains($Workspace.ToLower())) {
                     $found = $true
                     Break
@@ -590,12 +675,10 @@ function SwitchToTerraformWorskpace {
             }
 
             if ($found) {
-                &"$TerraformPath" workspace select $Workspace.ToLower()
-                if ($LastExitCode -gt 0) { throw "terraform error." }
+                Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
             }
             else {
-                &"$TerraformPath" workspace new $Workspace.ToLower()
-                if ($LastExitCode -gt 0) { throw "terraform error." }
+                Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
             }
         }
     }
@@ -611,18 +694,16 @@ function TerraformPlan {
         $Path
     )
 
-    Write-Verbose "[Terraform] Plan: $Path"
+    Write-Log "Plan: $Path"
 
     Push-Location
     try {
         Set-Location -Path $Path
-
         if ($VarFile) {
-            &"$TerraformPath" plan $TerraformNoColor -input=false -var-file="$VarFile" -out="`"$TerraformPlanPath`""
+            Start-NativeExecution { &"$TerraformPath" plan $TerraformNoColor -input=false -var-file="$VarFile" -out="`"$TerraformPlanPath`"" }
         } else {
-            &"$TerraformPath" plan $TerraformNoColor -input=false -out="`"$TerraformPlanPath`""
+            Start-NativeExecution { &"$TerraformPath" plan $TerraformNoColor -input=false -out="`"$TerraformPlanPath`"" }
         }
-        if ($LastExitCode -gt 0) { throw "terraform error." }
     }
     finally {
         Pop-Location
@@ -636,23 +717,22 @@ function TerraformApply {
         $Path
     )
 
-    Write-Verbose "[Terraform] Apply: $Path"
+    Write-Log "Apply: $Path"
 
     Push-Location
     try {
         Set-Location -Path $Path
 
         if (!$force) {
-            $confirmation = Read-Host "[Terraform] Continue deployment? (y/n)"
+            $confirmation = Read-Host "Continue deployment? (y/n)"
             if ($confirmation.ToLower() -ne 'y') {
-                Write-Host "[Terraform] Stopped by user."
+                Write-Host "Stopped by user."
                 Write-Host ""
                 exit
             }
         }
 
-        &"$TerraformPath" apply $TerraformNoColor -input=false "`"$TerraformPlanPath`""
-        if ($LastExitCode -gt 0) { throw "terraform error." }
+        Start-NativeExecution { &"$TerraformPath" apply $TerraformNoColor -input=false "`"$TerraformPlanPath`"" }
     }
     finally {
         Pop-Location
@@ -666,27 +746,26 @@ function TerraformDestroy {
         $Path
     )
 
-    Write-Verbose "[Terraform] Destroy: $Path"
+    Write-Log "Destroy: $Path"
 
     Push-Location
     try {
         Set-Location -Path $Path
 
         if (!$force) {
-            $confirmation = Read-Host "[Terraform] Continue with terraform destroy? (y/n)"
+            $confirmation = Read-Host "Continue with terraform destroy? (y/n)"
             if ($confirmation.ToLower() -ne 'y') {
-                Write-Host "[Terraform] Stopped by user."
+                Write-Host "Stopped by user."
                 Write-Host ""
                 exit
             }
         }
 
         if ($VarFile) {
-            &"$TerraformPath" destroy $TerraformNoColor -auto-approve -input=false -var-file="$VarFile"
+            Start-NativeExecution { &"$TerraformPath" destroy $TerraformNoColor -auto-approve -input=false -var-file="$VarFile" }
         } else {
-            &"$TerraformPath" destroy $TerraformNoColor -auto-approve -input=false
+            Start-NativeExecution { &"$TerraformPath" destroy $TerraformNoColor -auto-approve -input=false }
         }
-        if ($LastExitCode -gt 0) { throw "terraform error." }
     }
     finally {
         Pop-Location
@@ -700,15 +779,13 @@ function TerraformOutput {
         $Path
     )
 
-    Write-Verbose "[Terraform] Output: $Path"
+    Write-Log "Output: $Path"
 
     Push-Location
     try {
         Set-Location -Path $Path
 
-        $terrafomOutput = &"$TerraformPath" output $TerraformNoColor -json
-        if ($LastExitCode -gt 0) { throw "terraform error." }
-
+        $terrafomOutput = Start-NativeExecution { &"$TerraformPath" output $TerraformNoColor -json }
         Set-Content -Path $TerraformOutputPath  -Value $terrafomOutput
     }
     finally {
@@ -742,17 +819,35 @@ function InitTerraformWithRemoteBackend {
         $Path
     )
 
-    Write-Verbose "[Terraform] Init: $Path"
+    Write-Log "Init: $Path"
 
-    $accountKeyResponse = az storage account keys list --account-name $global:TfStateStorageAccountName | ConvertFrom-Json
-    $key = $accountKeyResponse[0].value
 
     Push-Location
     try {
         Set-Location -Path $Path
-        &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`""
-        if ($LastExitCode -gt 0) { throw "terraform error." }
-    }
+        Open-StorageAccountFirewall -SubscriptionId $env:ARM_SUBSCRIPTION_ID -ResourceGroupName $UtilResourceGroupName -StorageAccountName $global:TfStateStorageAccountName
+
+        $accountKeyResponse = Start-NativeExecution { az storage account keys list --account-name $global:TfStateStorageAccountName } | ConvertFrom-Json
+        $key = $accountKeyResponse[0].value
+
+        $saUpdateRetryCount = 0
+        $saUpdateSuccessful = $false
+        for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
+            Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -IgnoreExitcode -VerboseOutputOnError
+            if ($LastExitCode -gt 0) {
+                Write-Log "Retry Init (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
+                Start-Sleep -Seconds 3
+            } else {
+                $saUpdateSuccessful = $true
+            }
+        }
+    
+        if (!$saUpdateSuccessful) {
+            throw "Init failed. Please verify the Storage Account Firewall setup!"
+        }
+    
+        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError
+   }
     finally {
         Pop-Location
     }
@@ -768,11 +863,7 @@ function InitTerraformWithLocalBackend {
     Push-Location
     try {
         Set-Location -Path $Path
-        $ignoreOutput = &"$TerraformPath" init -backend=false $TerraformNoColor
-        if ($LastExitCode -gt 0) { 
-            Write-Error $ignoreOutput
-            throw "terraform error."
-        }
+        Start-NativeExecution { &"$TerraformPath" init -backend=false $TerraformNoColor } -VerboseOutputOnError
     }
     finally {
         Pop-Location
@@ -787,25 +878,22 @@ function RunTerraformValidate {
     )
 
     Push-Location
-    Set-Location -Path $Path
-    $ignore = &"$TerraformPath" validate
-    $validationError = $LastExitCode -gt 0
-    Pop-Location
-    return $validationError
+    try {
+        Set-Location -Path $Path
+        Start-NativeExecution { &"$TerraformPath" validate } -VerboseOutputOnError
+    } 
+    finally {
+        Pop-Location
+    }
 }
 
 function PatchTerraformEnvironmentVariables {
-    $isVerbose = [bool](Write-Verbose ([String]::Empty) 4>&1)
-
-    Write-Verbose "== Patching Environment Variables to be compatible with Terraform Variables =="
-
     $environmentVariables = (Get-ChildItem env:*).GetEnumerator() | Sort-Object Name 
-
-    if ($isVerbose -and $PrintEnv) {
-        Write-Verbose ""
-        Write-Verbose "[ Original Environment Variables ]"
+    if ($PrintEnv) {
+        Write-Log ""
+        Write-Log "[ Original Environment Variables ]"
         foreach ($environmentVariable in $environmentVariables) {
-            Write-Verbose "$($environmentVariable.Name)=$($environmentVariable.Value)"
+            Write-Log "$($environmentVariable.Name)=$($environmentVariable.Value)"
         }
     }
 
@@ -818,23 +906,24 @@ function PatchTerraformEnvironmentVariables {
                 # Only be verbose if there is an actual case fix.
                 if ($environmentVariable.Name -ne $caseFixedName)
                 {
-                    Write-Verbose "$( $environmentVariable.Name )='$( $environmentVariable.Value )' ==> $( $caseFixedName )='$( $environmentVariable.Value )'"
+                    Write-Log "Patched Environment Variable: $( $environmentVariable.Name )='$( $environmentVariable.Value )' ==> $( $caseFixedName )='$( $environmentVariable.Value )'"
                 }
             }
         }
     }
 
-    if ($isVerbose -and $PrintEnv) {
+    if ($PrintEnv) {
         $environmentVariables = (Get-ChildItem env:*).GetEnumerator() | Sort-Object Name 
 
-        Write-Verbose ""
-        Write-Verbose "[ Patched Environment Variables ]"
+        Write-Log ""
+        Write-Log "[ Patched Environment Variables ]"
         foreach ($environmentVariable in $environmentVariables) {
-            Write-Verbose "$($environmentVariable.Name)=$($environmentVariable.Value)"
+            Write-Log "$($environmentVariable.Name)=$($environmentVariable.Value)"
         }
-    }
 
-    Write-Verbose "============================================================================="
+        Write-Log ""
+        Write-Log ""
+    }
 }
 
 function SendMetricsToApplicationInsights {
@@ -851,20 +940,18 @@ function SendMetricsToApplicationInsights {
         'timestampUtc' = Get-Date -Format o
         'scriptVersion' = $ScriptVersion.ToString()
         'terraformVersion' = $TfVersion
-        'teamFoundationCollectionUri' = $env:System_TeamFoundationCollectionUri
-        'teamProject' = $env:System_TeamProject
-        'teamProjectId' = $env:System_TeamProjectId
-        'buildNumber' = $env:Build_BuildNumber
-        'buildId' = $env:Build_BildId
+        'teamFoundationCollectionUri' = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI
+        'teamProject' = $env:SYSTEM_TEAMPROJECT
+        'teamProjectId' = $env:SYSTEM_TEAMPROJECTID
+        'buildNumber' = $env:BUILD_BUILDNUMBER
+        'buildId' = $env:BUILD_BUILDID
+        'subscriptionId' = $env:ARM_SUBSCRIPTION_ID
         'tfProviders' = $tfProviders
     }
 
     SendTelemetry -Message "Metrics" -Severity "Information" -CustomProperties $metrics
 }
 
-
-# ------------------------------------------------------------------------------
-# ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 if ($Version) {
     Write-Host $ScriptVersion
@@ -873,13 +960,13 @@ if ($Version) {
 
 # Prepare Terraform Environment ------------------------------------------------
 if ($Validate) {
-    Write-Verbose "Validate only, skipping Azure Backend configuration check."
+    Write-Log "Validate only, skipping Azure Backend configuration check."
 }
 elseif ($env:ARM_CLIENT_ID -and $env:ARM_CLIENT_SECRET -and $env:ARM_SUBSCRIPTION_ID -and $env:ARM_TENANT_ID) {
-    Write-Verbose "Detected Terraform-specific Azure Authorization via environment variables (ARM_CLIENT_ID, ...)"
+    Write-Log "Detected Terraform-specific Azure Authorization via environment variables (ARM_CLIENT_ID, ...)"
 }
 elseif ($env:servicePrincipalId) {
-    Write-Verbose "Detected Azure DevOps az configuration. Automatically setting Terraform env vars."
+    Write-Log "Detected Azure DevOps az configuration. Automatically setting Terraform env vars."
     $env:ARM_CLIENT_ID = $env:servicePrincipalId
     $env:ARM_CLIENT_SECRET = $env:servicePrincipalKey
 
@@ -890,7 +977,7 @@ elseif ($env:servicePrincipalId) {
     $env:ARM_TENANT_ID = $defaultSubscriptionDetails.tenantId
 }
 elseif ($env:AZURE_CREDENTIALS) {
-    Write-Verbose "Detected GitHub az configuration. Automatically setting Terraform env vars. "
+    Write-Log "Detected GitHub az configuration. Automatically setting Terraform env vars. "
     $GitHubJsonSettings = ConvertFrom-Json -InputObject $env:AZURE_CREDENTIALS
     $env:ARM_CLIENT_ID = $GitHubJsonSettings.clientId
     $env:ARM_CLIENT_SECRET = $GitHubJsonSettings.clientSecret
@@ -898,7 +985,14 @@ elseif ($env:AZURE_CREDENTIALS) {
     $env:ARM_TENANT_ID = $GitHubJsonSettings.tenantId
 }
 else {
-    Write-Verbose "Using az authentication context for Terraform (default for interactive login)"
+    Write-Log "Using az authentication context for Terraform (default for interactive login)"
+
+    $defaultSubscriptionDetails = az account list --all --query "[?isDefault] | [0]" | ConvertFrom-Json 
+    if ($LastExitCode -gt 0) { throw "az CLI error." }
+
+    $env:ARM_SUBSCRIPTION_ID = $defaultSubscriptionDetails.id
+    $env:ARM_TENANT_ID = $defaultSubscriptionDetails.tenantId
+
     $currentAccount = az account show | ConvertFrom-Json
     if ($LastExitCode -gt 0) { throw "az CLI error." }
     $userName = $currentAccount.user.name
@@ -906,10 +1000,8 @@ else {
     $user = az ad user show --id "$userName" | ConvertFrom-Json
     if ($LastExitCode -gt 0) { throw "az CLI error." }
 
-    Write-Verbose "Setting TF_VAR_az_cli_user_object_id=$($user.objectId)"
+    Write-Log "Setting TF_VAR_az_cli_user_object_id=$($user.objectId)"
     $env:TF_VAR_az_cli_user_object_id=$user.objectId
-
-    Write-Verbose ""
 }
 
 # Fix Environment --------------------------------------------------------------
@@ -927,15 +1019,7 @@ ValidateTerraformMinimumVersion
 CleanTerraformDirectory -Path $TargetPath
 InitTerraformWithLocalBackend -Path $TargetPath
 SendMetricsToApplicationInsights
-$tfValidateError = RunTerraformValidate -Path $TargetPath
-
-# Run deployment on all Subdeployments -----------------------------------------
-if ($tfValidateError) {
-    throw "[Terraform] Validation errors detected. Stopping deployment process."
-}
-else {
-    Write-Verbose "[Terraform] Validation completed successfully."
-}
+RunTerraformValidate -Path $TargetPath
 
 if ($Validate) {
     return
@@ -972,9 +1056,7 @@ if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
     } 
     finally 
     {
-        if (!$LeaveFirewallOpen) {
-            LockdownTerraformBackend
-        }
+        Close-StorageAccountFirewall -SubscriptionId $env:ARM_SUBSCRIPTION_ID -ResourceGroupName $UtilResourceGroupName -StorageAccountName $global:TfStateStorageAccountName
     }
 } else {
     Write-Warning "Nothing modified or initialized. Please specify, -Init, -Destroy, -Plan, -Output or -Apply"
