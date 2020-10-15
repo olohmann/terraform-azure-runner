@@ -108,7 +108,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.1.0"
+$ScriptVersion = [version]"3.4.0"
 
 function Write-Log {
     [CmdletBinding()]
