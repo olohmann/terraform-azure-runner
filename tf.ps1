@@ -108,7 +108,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.4.0"
+$ScriptVersion = [version]"3.5.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -943,13 +943,17 @@ function PatchTerraformEnvironmentVariables {
 
 function SendMetricsToApplicationInsights {
     $tfProvidersHashSet = New-Object System.Collections.Generic.HashSet[string]
-    $tfProvidersRaw = Get-ChildItem -Path . -Filter terraform-provider* -Recurse -ErrorAction SilentlyContinue -Force
+    $tfProvidersRaw = Get-ChildItem -Path "$TargetPath/.terraform" -Filter terraform-provider* -Recurse -ErrorAction SilentlyContinue -Force
     foreach ($tfProvider in $tfProvidersRaw) {
         $tfProvidersHashSet.Add($tfProvider.Name) | Out-Null
     }
 
     $tfProviders = New-Object string[] $tfProvidersHashSet.Count
     $tfProvidersHashSet.CopyTo($tfProviders) | Out-Null
+
+    $defaultSubscriptionDetails = Start-NativeExecution { az account list --all --query "[?isDefault] | [0]" } | ConvertFrom-Json 
+    $defaultSubscriptionId = $defaultSubscriptionDetails.id;
+    $defaultSubscriptionName = $defaultSubscriptionDetails.name;
 
     $metrics = @{
         'timestampUtc' = Get-Date -Format o
@@ -960,10 +964,11 @@ function SendMetricsToApplicationInsights {
         'teamProjectId' = $env:SYSTEM_TEAMPROJECTID
         'buildNumber' = $env:BUILD_BUILDNUMBER
         'buildId' = $env:BUILD_BUILDID
-        'subscriptionId' = $env:ARM_SUBSCRIPTION_ID
+        'subscriptionId' = $defaultSubscriptionId
+        'subscriptionName' = $defaultSubscriptionName
         'tfProviders' = $tfProviders
     }
-
+    
     SendTelemetry -Message "Metrics" -Severity "Information" -CustomProperties $metrics
 }
 
