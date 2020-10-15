@@ -1033,7 +1033,12 @@ else {
 ValidateTerraformMinimumVersion
 CleanTerraformDirectory -Path $TargetPath
 InitTerraformWithLocalBackend -Path $TargetPath
-SendMetricsToApplicationInsights
+
+if ($Apply) {
+    # Only publish metrics when an actual apply happens.
+    SendMetricsToApplicationInsights
+}
+
 RunTerraformValidate -Path $TargetPath
 
 if ($Validate) {
