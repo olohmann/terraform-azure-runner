@@ -108,7 +108,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.0.0"
+$ScriptVersion = [version]"3.1.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -492,7 +492,7 @@ function SendTelemetry
     {
         if (!$ApplicationInsightsInstrumentationKey) 
         {
-            Write-Log "Sending metrics to APPLICATION INSIGHTS is disabled (no instrumentation key present)."
+            Write-Log "Sending metrics to APPLICATION INSIGHTS is DISABLED (no instrumentation key present)."
         }
         else {
             Write-Log "Sending metrics to APPLICATION INSIGHTS ($($ApplicationInsightsInstrumentationKey))."
@@ -835,7 +835,7 @@ function InitTerraformWithRemoteBackend {
         for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
             Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -IgnoreExitcode -VerboseOutputOnError
             if ($LastExitCode -gt 0) {
-                Write-Log "Retry Init (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
+                Write-Log "Retry Container Create (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
                 Start-Sleep -Seconds 3
             } else {
                 $saUpdateSuccessful = $true
@@ -846,7 +846,22 @@ function InitTerraformWithRemoteBackend {
             throw "Init failed. Please verify the Storage Account Firewall setup!"
         }
     
-        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError
+        $saUpdateRetryCount = 0
+        $saUpdateSuccessful = $false
+        for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
+            Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError -IgnoreExitcode
+            if ($LastExitCode -gt 0) {
+                Write-Log "Retry Terraform Init (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
+                Start-Sleep -Seconds 3
+            } else {
+                $saUpdateSuccessful = $true
+            }
+
+        }
+
+        if (!$saUpdateSuccessful) {
+            throw "Init failed. Please verify the Storage Account Firewall setup!"
+        }
    }
     finally {
         Pop-Location
