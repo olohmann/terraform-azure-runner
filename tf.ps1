@@ -108,7 +108,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.5.0"
+$ScriptVersion = [version]"3.6.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -663,7 +663,24 @@ function SwitchToTerraformWorskpace {
             Write-Log "No workspace switch required."
         }
         else {
-            $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
+
+            $tfWorkspaceListString = ""
+            $saUpdateRetryCount = 0
+            $saUpdateSuccessful = $false
+            for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
+                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
+                if ($LastExitCode -gt 0) {
+                    Write-Log "Retry Container Create (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
+                    Start-Sleep -Seconds 3
+                } else {
+                    $saUpdateSuccessful = $true
+                }
+            }
+
+            if (!$saUpdateSuccessful) {
+                throw "Terraform workspace list failed. Please verify the Storage Account Firewall setup!"
+            }
+
             $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
             $found = $false
             foreach ($tfWorkspaceItem in $tfWorkspaceList) {
@@ -843,7 +860,7 @@ function InitTerraformWithRemoteBackend {
         }
     
         if (!$saUpdateSuccessful) {
-            throw "Init failed. Please verify the Storage Account Firewall setup!"
+            throw "Terraform init failed. Please verify the Storage Account Firewall setup!"
         }
     
         $saUpdateRetryCount = 0
@@ -860,7 +877,7 @@ function InitTerraformWithRemoteBackend {
         }
 
         if (!$saUpdateSuccessful) {
-            throw "Init failed. Please verify the Storage Account Firewall setup!"
+            throw "Terraform init failed. Please verify the Storage Account Firewall setup!"
         }
    }
     finally {
