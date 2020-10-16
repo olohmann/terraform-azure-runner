@@ -668,9 +668,9 @@ function SwitchToTerraformWorskpace {
             $saUpdateRetryCount = 0
             $saUpdateSuccessful = $false
             for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
+                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list } -IgnoreExitcode -VerboseOutputOnError
                 if ($LastExitCode -gt 0) {
-                    Write-Log "Retry Container Create (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
+                    Write-Log "Retry list workspace (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
                     Start-Sleep -Seconds 3
                 } else {
                     $saUpdateSuccessful = $true
