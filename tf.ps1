@@ -664,38 +664,38 @@ function SwitchToTerraformWorskpace {
         }
         else {
 
-            $tfWorkspaceListString = ""
             $saUpdateRetryCount = 0
             $saUpdateSuccessful = $false
             for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list } -IgnoreExitcode -VerboseOutputOnError
+                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list } -IgnoreExitcode 
                 if ($LastExitCode -gt 0) {
                     Write-Log "Retry list workspace (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
                     Start-Sleep -Seconds 3
+                    continue
                 } else {
                     $saUpdateSuccessful = $true
                 }
-            }
 
-            if (!$saUpdateSuccessful) {
-                throw "Terraform workspace list failed. Please verify the Storage Account Firewall setup!"
-            }
-
-            $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
-            $found = $false
-            foreach ($tfWorkspaceItem in $tfWorkspaceList) {
-                Write-Log "Found workspace $tfWorkspaceItem"
-                if ($tfWorkspaceItem.ToLower().Contains($Workspace.ToLower())) {
-                    $found = $true
-                    Break
+                $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
+                $found = $false
+                foreach ($tfWorkspaceItem in $tfWorkspaceList) {
+                    Write-Log "Found workspace $tfWorkspaceItem"
+                    if ($tfWorkspaceItem.ToLower().Contains($Workspace.ToLower())) {
+                        $found = $true
+                        Break
+                    }
                 }
-            }
 
-            if ($found) {
-                Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
-            }
-            else {
-                Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
+                if ($found) {
+                    Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
+                }
+                else {
+                    Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
+                }
+    
+                if (!$saUpdateSuccessful) {
+                    throw "Terraform workspace list failed. Please verify the Storage Account Firewall setup!"
+                }
             }
         }
     }
