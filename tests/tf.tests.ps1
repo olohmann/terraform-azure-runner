@@ -1,7 +1,12 @@
 #!/usr/bin/env pwsh
 
 #Requires -PSEdition Core
-#Requires -Modules @{ ModuleName="Pester"; ModuleVersion="5.0.4" }
+#Requires -Modules @{ ModuleName="Pester"; ModuleVersion="4.0.0" }
+
+function GenerateRandomPrefix {
+    $rndPrefix = -join ((97..122) | Get-Random -Count 8 | % {[char]$_})
+    $rndPrefix
+}
 
 function TfApply {
     param (
@@ -37,6 +42,17 @@ function TfDestroy {
     & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Force -TargetPath "$path" -DownloadTerraform
 }
 
+function CleanUp {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $TestCasePrefix
+    )
+
+    $rgName="$($TestCasePrefix)_test_util_rg"
+    az group delete -n $rgName -y --output none
+}
+
 Describe "deployments" {
     It "should handle simple (one sub-deployment) deployments " {
         TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
@@ -49,26 +65,10 @@ Describe "deployments" {
     }
    
     BeforeEach {
-        function GenerateRandomPrefix {
-            $rndPrefix = -join ((97..122) | Get-Random -Count 8 | % {[char]$_})
-            $rndPrefix
-        }
-
         $testCasePrefix = GenerateRandomPrefix
     }
 
     AfterEach {
-        function CleanUp {
-            param (
-                [Parameter(Mandatory = $true)]
-                [string]
-                $TestCasePrefix
-            )
-
-            $rgName="$($TestCasePrefix)_test_util_rg"
-            az group delete -n $rgName -y --output none
-        }
-
         CleanUp -TestCasePrefix $testCasePrefix
     }
 }

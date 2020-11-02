@@ -23,7 +23,7 @@ jobs:
       run: Install-Module -Name Pester -Force
       shell: pwsh
     - name: Execute Tests
-      run: Invoke-Pester
       shell: pwsh
+      run: ./tests/tf.tests.ps1
       env:
        AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
