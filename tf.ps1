@@ -108,7 +108,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.6.0"
+$ScriptVersion = [version]"3.7.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -311,6 +311,11 @@ function Open-StorageAccountFirewall {
     }
 
     Invoke-RestMethod -Uri $armUrl -Headers $headers -Method PATCH -Body ($body | ConvertTo-Json -Depth 100) | Out-Null
+    Verify-StorageAccountAvailability -SubscriptionId $SubscriptionId `
+        -ResourceGroupName $ResourceGroupName `
+        -StorageAccountName $StorageAccountName `
+        -StateContainerName $global:TfStateContainerName
+
     Write-Log "Storage account firewall opened."
 }
 
@@ -343,6 +348,96 @@ function Close-StorageAccountFirewall {
 
     Invoke-RestMethod -Uri $armUrl -Headers $headers -Method PATCH -Body ($body | ConvertTo-Json -Depth 100) | Out-Null
     Write-Log "Closed storage account firewall successfully."
+}
+
+function Verify-StorageAccountAvailability
+{
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $SubscriptionId,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $ResourceGroupName,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $StorageAccountName,
+
+        [Parameter(Mandatory = $true)]
+        [string]
+        $StateContainerName
+    )
+
+    $headers = Get-ArmAuthHeaders
+    $stateContainerUrl = "https://management.azure.com/subscriptions/$SubscriptionId" +
+        "/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage" +
+        "/storageAccounts/$StorageAccountName/blobServices/default/containers/$StateContainerName" +
+        "?api-version=2019-06-01"
+
+    $stateContainerBody = @{
+        'properties' = @{
+            'publicAccess' = 'None'
+        }
+    }
+
+    $retryCount = 0
+    $stateOk = $false
+    $maxRetries = 30
+    for ($retryCount = 0; $retryCount -lt $maxRetries -and !$stateOk; $retryCount++) {
+        try
+        {
+            Invoke-RestMethod -Uri $stateContainerUrl -Headers $headers -Body ($stateContainerBody | ConvertTo-Json -Depth 100) -Method PUT | Out-Null
+            Write-Log "Verified that State Container '$StateContainerName' exists."
+            $stateOk = $true
+        }
+        catch
+        {
+            $stateOk = $false
+        }
+
+        if (!$stateOk)
+        {
+            Write-Log "Waiting for firewall change to become effective. Retry $( $retryCount + 1 )/$( $maxRetries )."
+            Start-sleep -seconds 3
+        }
+    }
+
+    $retryCount = 0
+    $stateOk = $false
+    $maxRetries = 30
+    $keys = az storage account keys list --account-name $StorageAccountName | ConvertFrom-Json
+    if ($LastExitCode -gt 0)
+    {
+        throw "az CLI error."
+    }
+
+    $key = $keys[0].value
+
+    for ($retryCount = 0; $retryCount -lt $maxRetries -and !$stateOk; $retryCount++) {
+        try
+        {
+            $ignore = az storage blob list --account-name $StorageAccountName --account-key $key --container-name $StateContainerName
+            if ($LastExitCode -gt 0)
+            {
+                throw "az CLI error."
+            }
+
+            Write-Log "Verified listing blobs in container $StateContainerName."
+            $stateOk = $true
+        }
+        catch
+        {
+            $stateOk = $false
+        }
+
+        if (!$stateOk)
+        {
+            Write-Log "Waiting for firewall change to become effective. Retry $( $retryCount + 1 )/$( $maxRetries )."
+            Start-sleep -seconds 3
+        }
+    }
 }
 
 function GetTerraformOsName {
@@ -663,39 +758,22 @@ function SwitchToTerraformWorskpace {
             Write-Log "No workspace switch required."
         }
         else {
+            $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
+            $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
+            $found = $false
+            foreach ($tfWorkspaceItem in $tfWorkspaceList) {
+                Write-Log "Found workspace $tfWorkspaceItem"
+                if ($tfWorkspaceItem.ToLower().Contains($Workspace.ToLower())) {
+                    $found = $true
+                    Break
+                }
+            }
 
-            $saUpdateRetryCount = 0
-            $saUpdateSuccessful = $false
-            for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-                $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list } -IgnoreExitcode 
-                if ($LastExitCode -gt 0) {
-                    Write-Log "Retry list workspace (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
-                    Start-Sleep -Seconds 3
-                    continue
-                } else {
-                    $saUpdateSuccessful = $true
-                }
-
-                $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
-                $found = $false
-                foreach ($tfWorkspaceItem in $tfWorkspaceList) {
-                    Write-Log "Found workspace $tfWorkspaceItem"
-                    if ($tfWorkspaceItem.ToLower().Contains($Workspace.ToLower())) {
-                        $found = $true
-                        Break
-                    }
-                }
-
-                if ($found) {
-                    Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
-                }
-                else {
-                    Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
-                }
-    
-                if (!$saUpdateSuccessful) {
-                    throw "Terraform workspace list failed. Please verify the Storage Account Firewall setup!"
-                }
+            if ($found) {
+                Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
+            }
+            else {
+                Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
             }
         }
     }
@@ -847,38 +925,8 @@ function InitTerraformWithRemoteBackend {
         $accountKeyResponse = Start-NativeExecution { az storage account keys list --account-name $global:TfStateStorageAccountName } | ConvertFrom-Json
         $key = $accountKeyResponse[0].value
 
-        $saUpdateRetryCount = 0
-        $saUpdateSuccessful = $false
-        for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-            Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -IgnoreExitcode -VerboseOutputOnError
-            if ($LastExitCode -gt 0) {
-                Write-Log "Retry Container Create (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
-                Start-Sleep -Seconds 3
-            } else {
-                $saUpdateSuccessful = $true
-            }
-        }
-    
-        if (!$saUpdateSuccessful) {
-            throw "Terraform init failed. Please verify the Storage Account Firewall setup!"
-        }
-    
-        $saUpdateRetryCount = 0
-        $saUpdateSuccessful = $false
-        for ($saUpdateRetryCount = 0; $saUpdateRetryCount -lt 10 -and !$saUpdateSuccessful; $saUpdateRetryCount++) {
-            Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError -IgnoreExitcode
-            if ($LastExitCode -gt 0) {
-                Write-Log "Retry Terraform Init (Firewall Update Pending) ($($saUpdateRetryCount + 1)/10)..."
-                Start-Sleep -Seconds 3
-            } else {
-                $saUpdateSuccessful = $true
-            }
-
-        }
-
-        if (!$saUpdateSuccessful) {
-            throw "Terraform init failed. Please verify the Storage Account Firewall setup!"
-        }
+        Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -VerboseOutputOnError
+        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError
    }
     finally {
         Pop-Location
@@ -1095,8 +1143,8 @@ if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
             TerraformOutput -Path $TargetPath
         }
 
-    } 
-    finally 
+    }
+    finally
     {
         Close-StorageAccountFirewall -SubscriptionId $env:ARM_SUBSCRIPTION_ID -ResourceGroupName $UtilResourceGroupName -StorageAccountName $global:TfStateStorageAccountName
     }
