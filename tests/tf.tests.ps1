@@ -58,7 +58,12 @@ Describe "deployments" {
         TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
         $exists = az group exists -n $testCasePrefix | ConvertFrom-Json
         $exists | Should -Be $true
-        
+
+        # Apply a second time so that the existing storage is re-used.
+        TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
+        $exists = az group exists -n $testCasePrefix | ConvertFrom-Json
+        $exists | Should -Be $true
+
         TfDestroy -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
         $exists = az group exists -n "$testCasePrefix" | ConvertFrom-Json
         $exists | Should -Be $false

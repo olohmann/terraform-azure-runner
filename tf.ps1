@@ -241,7 +241,7 @@ function Start-NativeExecution
             {
                 break;
             }
-            else
+            elseif ($Retry)
             {
                 Write-Log "Retry $( $retryCount + 1 )/$( $maxRetries )."
                 Start-sleep -seconds 3
