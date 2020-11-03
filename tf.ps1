@@ -65,6 +65,9 @@ param (
     # Application Insights Instrumentation Key for Metrics.
     [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
 
+    # Application Insights Instrumentation Key for Metrics.
+    [Parameter(Mandatory = $false)][int]$DelayAfterFirewallChange = 0,
+
     # Do not print colored console ouptut when set.
     [switch]$NoColor = $false,
 
@@ -108,7 +111,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.7.0"
+$ScriptVersion = [version]"3.8.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -208,32 +211,55 @@ function Start-NativeExecution
     param(
         [scriptblock]$sb,
         [switch]$IgnoreExitcode,
-        [switch]$VerboseOutputOnError
+        [switch]$VerboseOutputOnError,
+        [switch]$Retry
     )
 
     $backupEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        if($VerboseOutputOnError.IsPresent)
+        $retryCount = 0
+        if ($Retry)
         {
-            $output = & $sb 2>&1
+            $maxRetries = 30
         }
-        else
-        {
-            & $sb
+        else {
+            $maxRetries = 1
+        }
+
+        for ($retryCount = 0; $retryCount -lt $maxRetries; $retryCount++) {
+            if ($VerboseOutputOnError.IsPresent)
+            {
+                $output = & $sb 2>&1
+            }
+            else
+            {
+                & $sb
+            }
+
+            if ($LASTEXITCODE -eq 0)
+            {
+                break;
+            }
+            else
+            {
+                Write-Log "Retry $( $retryCount + 1 )/$( $maxRetries )."
+                Start-sleep -seconds 3
+            }
         }
 
         # note, if $sb doesn't have a native invocation, $LASTEXITCODE will
         # point to the obsolete value
-        if ($LASTEXITCODE -ne 0 -and -not $IgnoreExitcode) {
-            if($VerboseOutputOnError.IsPresent -and $output)
+        if ($LASTEXITCODE -ne 0 -and -not $IgnoreExitcode)
+        {
+            if ($VerboseOutputOnError.IsPresent -and $output)
             {
                 $output | Out-String | Write-Verbose -Verbose
             }
 
             # Get caller location for easier debugging
             $caller = Get-PSCallStack -ErrorAction SilentlyContinue
-            if($caller)
+            if ($caller)
             {
                 $callerLocationParts = $caller[1].Location -split ":\s*line\s*"
                 $callerFile = $callerLocationParts[0]
@@ -418,7 +444,7 @@ function Verify-StorageAccountAvailability
     for ($retryCount = 0; $retryCount -lt $maxRetries -and !$stateOk; $retryCount++) {
         try
         {
-            $ignore = az storage blob list --account-name $StorageAccountName --account-key $key --container-name $StateContainerName
+            Start-NativeExecution { az storage blob list --account-name $StorageAccountName --account-key $key --container-name $StateContainerName } -IgnoreExitcode
             if ($LastExitCode -gt 0)
             {
                 throw "az CLI error."
@@ -437,6 +463,12 @@ function Verify-StorageAccountAvailability
             Write-Log "Waiting for firewall change to become effective. Retry $( $retryCount + 1 )/$( $maxRetries )."
             Start-sleep -seconds 3
         }
+    }
+
+    if ($DelayAfterFirewallChange -lt 0)
+    {
+        Write-Log "Waiting for firewall change to become effective ($DelayAfterFirewallChange secs)..."
+        Start-Sleep -Seconds $DelayAfterFirewallChange
     }
 }
 
@@ -751,14 +783,14 @@ function SwitchToTerraformWorskpace {
     Push-Location
     try {
         Set-Location -Path $Path
-        $tfWorkspace = Start-NativeExecution { &"$TerraformPath" workspace show } 
+        $tfWorkspace = Start-NativeExecution { &"$TerraformPath" workspace show } -Retry
 
         Write-Log "Current workspace: $tfWorkspace"
         if ($tfWorkspace.ToLower() -eq $Workspace.ToLower()) {
             Write-Log "No workspace switch required."
         }
         else {
-            $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list }
+            $tfWorkspaceListString = Start-NativeExecution { &"$TerraformPath" workspace list } -Retry
             $tfWorkspaceList = $tfWorkspaceListString.Split([Environment]::NewLine)
             $found = $false
             foreach ($tfWorkspaceItem in $tfWorkspaceList) {
@@ -770,10 +802,10 @@ function SwitchToTerraformWorskpace {
             }
 
             if ($found) {
-                Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -VerboseOutputOnError
+                Start-NativeExecution { &"$TerraformPath" workspace select $Workspace.ToLower() } -Retry -VerboseOutputOnError
             }
             else {
-                Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -VerboseOutputOnError
+                Start-NativeExecution { &"$TerraformPath" workspace new $Workspace.ToLower() } -Retry -VerboseOutputOnError
             }
         }
     }
@@ -925,8 +957,8 @@ function InitTerraformWithRemoteBackend {
         $accountKeyResponse = Start-NativeExecution { az storage account keys list --account-name $global:TfStateStorageAccountName } | ConvertFrom-Json
         $key = $accountKeyResponse[0].value
 
-        Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -VerboseOutputOnError
-        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -VerboseOutputOnError
+        Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -Retry -VerboseOutputOnError
+        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -Retry -VerboseOutputOnError
    }
     finally {
         Pop-Location
