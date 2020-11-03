@@ -66,7 +66,7 @@ param (
     [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
 
     # Application Insights Instrumentation Key for Metrics.
-    [Parameter(Mandatory = $false)][int]$DelayAfterFirewallChange = 0,
+    [Parameter(Mandatory = $false)][int]$DelayAfterFirewallChange = 10,
 
     # Do not print colored console ouptut when set.
     [switch]$NoColor = $false,
@@ -106,7 +106,10 @@ param (
     [switch][Alias('p')]$PrintEnv = $false,
     
     # Force, that is do not ask for interactive input.
-    [switch][Alias('f')]$Force = $false
+    [switch][Alias('f')]$Force = $false,
+
+    # Show an error message that asks the user to retry the run in the likely case of a FW error.
+    [switch]$ShowFirewallErrorRetryMessage = $false
 )
 
 Set-StrictMode -Version latest
@@ -1151,11 +1154,21 @@ EnsureAzureCliContext
 
 if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
     try {
-        CreateOrUpdateTerraformBackend
-        CleanTerraformDirectory -Path $TargetPath
-        InitTerraformWithRemoteBackend -Path $TargetPath
-        SwitchToTerraformWorskpace -Path $TargetPath -Workspace $EnvironmentName
-        InitTerraformWithRemoteBackend -Path $TargetPath
+        try
+        {
+            CreateOrUpdateTerraformBackend
+            CleanTerraformDirectory -Path $TargetPath
+            InitTerraformWithRemoteBackend -Path $TargetPath
+            SwitchToTerraformWorskpace -Path $TargetPath -Workspace $EnvironmentName
+            InitTerraformWithRemoteBackend -Path $TargetPath
+        }
+        catch {
+            if ($ShowFirewallErrorRetryMessage)
+            {
+                Write-Error "IMPORTANT: Sometimes the re-configuration of the State Storage Firewall can trigger an error. Please retry running the pipeline."
+            }
+            throw
+        }
 
         if ($Init) {
             # Nothing further to do.
