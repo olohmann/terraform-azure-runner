@@ -114,7 +114,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.8.1"
+$ScriptVersion = [version]"3.9.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -140,72 +140,6 @@ function Write-Log {
         Write-Error $Message
     }
 }
-
-$TerrafomMinimumVersion = [version]$TfVersion
-$TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
-$TerraformPlanPath = "terraform.tfplan"
-$TerraformOutputPath = "output.json"
-
-# Prepare Options
-if ($UtilResourceGroupName -eq "") {
-    $UtilResourceGroupName = "$($Prefix)_$($EnvironmentName)_util_rg".ToLower()
-}
-
-# Check Location parameter to avoid Error:
-# The specified location '/home/vsts/work/1/s' is invalid. A location must consist of characters, whitespace, digit, or following symbols '(,)'.
-$CurrentLocation = Get-Location
-if ($Location -match $CurrentLocation)
-{
-    Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'"
-    $Location = "westeurope"
-}
-
-$Location = $Location.ToLower()
-$Location = $Location -Replace " "
-
-# If a non-expanded Azure DevOps Variable assignment was found, print a
-# warning and continue with the default.
-if ($Location -match '\$\([^)]*\)')
-{
-    $Location = "westeurope"
-    Write-Warning "Found un-expanded Azure DevOps Variable assigned to -Location. Fallback to 'westeurope'"
-}
-
-$TargetPath = Resolve-Path $TargetPath
-
-$global:TfStateStorageAccountName = ""
-$global:TfStateContainerName = "tf-state"
-
-Write-Log ""
-Write-Log "[Information]"
-Write-Log "Script Version                  $ScriptVersion"
-Write-Log "Current working location:       $CurrentLocation"
-Write-Log ""
-Write-Log "[Provided Options]"
-Write-Log "TargetPath:                     $TargetPath"
-Write-Log "EnvironmentName:                $EnvironmentName"
-Write-Log "Prefix:                         $Prefix"
-Write-Log "Location:                       $Location"
-Write-Log "VarFile:                        $VarFile"
-Write-Log "UtilResourceGroupName:          $UtilResourceGroupName"
-Write-Log ""
-Write-Log "[Automatically Created TF Environment Variables]"
-Write-Log "TF_VAR_prefix                   $Prefix"
-Write-Log "TF_VAR_location                 $Location"
-Write-Log "TF_VAR_util_resource_group_name $UtilResourceGroupName"
-Write-Log ""
-
-if ($VarFile) {
-    if ([System.IO.File]::Exists($VarFile)) {
-        $VarFile = Resolve-Path $VarFile
-    } else {
-        Write-Log "Provided VarFile points to not-existing path. Ignoring..."
-    }
-}
-
-$env:TF_VAR_prefix = $Prefix
-$env:TF_VAR_location = $Location
-$env:TF_VAR_util_resource_group_name = $UtilResourceGroupName
 
 # this function wraps native command Execution
 # for more information, read https://mnaoumov.wordpress.com/2015/01/11/execution-of-external-commands-in-powershell-done-right/
@@ -278,6 +212,79 @@ function Start-NativeExecution
     }
 }
 
+
+$TerrafomMinimumVersion = [version]$TfVersion
+$TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
+$TerraformPlanPath = "terraform.tfplan"
+$TerraformOutputPath = "output.json"
+
+$AzureResourceManagerBaseUrl = $(Start-NativeExecution { az cloud show --output json --output json } | ConvertFrom-Json).endpoints.resourceManager
+$AzureResourceManagerBaseUrl = $($AzureResourceManagerBaseUrl).Trim('/')
+
+Write-Log "Using AzureResourceManagerBaseUrl $AzureResourceManagerBaseUrl"
+
+# Prepare Options
+if ($UtilResourceGroupName -eq "") {
+    $UtilResourceGroupName = "$($Prefix)_$($EnvironmentName)_util_rg".ToLower()
+}
+
+# Check Location parameter to avoid Error:
+# The specified location '/home/vsts/work/1/s' is invalid. A location must consist of characters, whitespace, digit, or following symbols '(,)'.
+$CurrentLocation = Get-Location
+if ($Location -match $CurrentLocation)
+{
+    Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'"
+    $Location = "westeurope"
+}
+
+$Location = $Location.ToLower()
+$Location = $Location -Replace " "
+
+# If a non-expanded Azure DevOps Variable assignment was found, print a
+# warning and continue with the default.
+if ($Location -match '\$\([^)]*\)')
+{
+    $Location = "westeurope"
+    Write-Warning "Found un-expanded Azure DevOps Variable assigned to -Location. Fallback to 'westeurope'"
+}
+
+$TargetPath = Resolve-Path $TargetPath
+
+$global:TfStateStorageAccountName = ""
+$global:TfStateContainerName = "tf-state"
+
+Write-Log ""
+Write-Log "[Information]"
+Write-Log "Script Version                  $ScriptVersion"
+Write-Log "Current working location:       $CurrentLocation"
+Write-Log ""
+Write-Log "[Provided Options]"
+Write-Log "TargetPath:                     $TargetPath"
+Write-Log "EnvironmentName:                $EnvironmentName"
+Write-Log "Prefix:                         $Prefix"
+Write-Log "Location:                       $Location"
+Write-Log "VarFile:                        $VarFile"
+Write-Log "UtilResourceGroupName:          $UtilResourceGroupName"
+Write-Log ""
+Write-Log "[Automatically Created TF Environment Variables]"
+Write-Log "TF_VAR_prefix                   $Prefix"
+Write-Log "TF_VAR_location                 $Location"
+Write-Log "TF_VAR_util_resource_group_name $UtilResourceGroupName"
+Write-Log ""
+
+if ($VarFile) {
+    if ([System.IO.File]::Exists($VarFile)) {
+        $VarFile = Resolve-Path $VarFile
+    } else {
+        Write-Log "Provided VarFile points to not-existing path. Ignoring..."
+    }
+}
+
+$env:TF_VAR_prefix = $Prefix
+$env:TF_VAR_location = $Location
+$env:TF_VAR_util_resource_group_name = $UtilResourceGroupName
+
+
 function GetLocalTerraformInstallation() {
     $tf = $null
 
@@ -329,7 +336,7 @@ function Open-StorageAccountFirewall {
 
     Write-Log "Opening storage account firewall..."
     $headers = Get-ArmAuthHeaders
-    $armUrl = "https://management.azure.com/subscriptions/$($SubscriptionId)/resourceGroups/$($ResourceGroupName)/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
+    $armUrl = "$AzureResourceManagerBaseUrl/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
 
     $body = @{
         'properties'= @{
@@ -365,7 +372,7 @@ function Close-StorageAccountFirewall {
 
     Write-Log "Closing storage account firewall..."
     $headers = Get-ArmAuthHeaders
-    $armUrl = "https://management.azure.com/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
+    $armUrl = "$AzureResourceManagerBaseUrl/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
 
     $body = @{
         'properties'= @{
@@ -400,7 +407,7 @@ function Verify-StorageAccountAvailability
     )
 
     $headers = Get-ArmAuthHeaders
-    $stateContainerUrl = "https://management.azure.com/subscriptions/$SubscriptionId" +
+    $stateContainerUrl = "$AzureResourceManagerBaseUrl/subscriptions/$SubscriptionId" +
         "/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage" +
         "/storageAccounts/$StorageAccountName/blobServices/default/containers/$StateContainerName" +
         "?api-version=2019-06-01"
@@ -1095,6 +1102,9 @@ elseif ($env:servicePrincipalId) {
 
     $env:ARM_SUBSCRIPTION_ID = $defaultSubscriptionDetails.id
     $env:ARM_TENANT_ID = $defaultSubscriptionDetails.tenantId
+
+    $env:TF_VAR_team_foundation_collection_uri = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI
+    $env:TF_VAR_team_project = $env:SYSTEM_TEAMPROJECT
 }
 elseif ($env:AZURE_CREDENTIALS) {
     Write-Log "Detected GitHub az configuration. Automatically setting Terraform env vars. "
