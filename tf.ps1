@@ -114,7 +114,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.9.0"
+$ScriptVersion = [version]"3.9.1"
 
 function Write-Log {
     [CmdletBinding()]
@@ -336,7 +336,7 @@ function Open-StorageAccountFirewall {
 
     Write-Log "Opening storage account firewall..."
     $headers = Get-ArmAuthHeaders
-    $armUrl = "$AzureResourceManagerBaseUrl/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
+    $armUrl = "$AzureResourceManagerBaseUrl/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/Microsoft.Storage/storageAccounts/$($StorageAccountName)?api-version=2019-06-01"
 
     $body = @{
         'properties'= @{
