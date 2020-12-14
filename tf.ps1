@@ -60,7 +60,7 @@ param (
     [Parameter(Mandatory = $false)][string]$UtilResourceGroupName = "",
 
     # The Terraform binary version to use.
-    [Parameter(Mandatory = $false)][string]$TfVersion = "0.13.5",
+    [Parameter(Mandatory = $false)][string]$TfVersion = "0.14.2",
 
     # Application Insights Instrumentation Key for Metrics.
     [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
@@ -114,7 +114,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.9.1"
+$ScriptVersion = [version]"3.10.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -454,7 +454,7 @@ function Verify-StorageAccountAvailability
     for ($retryCount = 0; $retryCount -lt $maxRetries -and !$stateOk; $retryCount++) {
         try
         {
-            Start-NativeExecution { az storage blob list --account-name $StorageAccountName --account-key $key --container-name $StateContainerName } -IgnoreExitcode
+            Start-NativeExecution { az storage blob list --account-name $StorageAccountName --account-key $key --container-name $StateContainerName --output none } -IgnoreExitcode
             if ($LastExitCode -gt 0)
             {
                 throw "az CLI error."
