@@ -22,7 +22,7 @@ function TfApply {
     $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
     $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
     
-    & "$tf" -Apply -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
+    & "$tf" -Apply -Prefix "$TestCasePrefix" -EnvironmentName "test" -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function TfDestroy {
@@ -39,7 +39,7 @@ function TfDestroy {
     $tf = Join-Path -Path $PSScriptRoot -ChildPath "../tf.ps1"
     $env:TF_VAR_resource_group_name = "$($TestCasePrefix)"
     
-    & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Verbose -Force -TargetPath "$path" -DownloadTerraform
+    & "$tf" -Destroy -Prefix "$TestCasePrefix" -EnvironmentName "test" -Force -TargetPath "$path" -DownloadTerraform
 }
 
 function CleanUp {
@@ -48,7 +48,7 @@ function CleanUp {
         [string]
         $TestCasePrefix
     )
-    
+
     $rgName="$($TestCasePrefix)_test_util_rg"
     az group delete -n $rgName -y --output none
 }
@@ -58,7 +58,12 @@ Describe "deployments" {
         TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
         $exists = az group exists -n $testCasePrefix | ConvertFrom-Json
         $exists | Should -Be $true
-        
+
+        # Apply a second time so that the existing storage is re-used.
+        TfApply -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
+        $exists = az group exists -n $testCasePrefix | ConvertFrom-Json
+        $exists | Should -Be $true
+
         TfDestroy -TestCase "simple/01_tf" -TestCasePrefix "$testCasePrefix"
         $exists = az group exists -n "$testCasePrefix" | ConvertFrom-Json
         $exists | Should -Be $false
