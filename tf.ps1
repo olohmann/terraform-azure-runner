@@ -73,6 +73,8 @@ param (
 
     # GitToken
     [Parameter(Mandatory = $false)][string]$GitToken = "",
+    # GitHost
+    [Parameter(Mandatory = $false)][string]$GitHost = "dev.azure.com",
 
     # Run Terraform init.
     [switch]$Init = $false,
@@ -117,7 +119,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.11.0"
+$ScriptVersion = [version]"3.11.2"
 
 function Write-Log {
     [CmdletBinding()]
@@ -698,29 +700,30 @@ function ValidateTerraformMinimumVersion {
 
 function Set-TokenForTerraformGitModules
 (
-    $Token
+    $Token,
+    $GitHost = "dev.azure.com"
 )
 {
     if ($IsLinux -or $IsMacOS)
     {
         if ([String]::IsNullOrEmpty($Token)) {throw "No token provided." }
-        $stdinForGitCreds = "protocol=https`nhost=dev.azure.com`nusername=any`npassword=$Token`n`n"
+        $stdinForGitCreds = "protocol=https`nhost=$GitHost`nusername=any`npassword=$Token`n`n"
         Write-Output $stdinForGitCreds | git credential-cache store
         if ($LastExitCode -gt 0) { throw "git CLI error." }
         git config --global credential.helper cache
         if ($LastExitCode -gt 0) { throw "git CLI error." }
-        Write-Host "We have set git creds in cache, using the provided token."
+        Write-Host "We have set git creds in cache for Host $GitHost, using the provided token."
     }
     else
     {
         Write-Warning "SECURITY ISSUE! 'git config --global credential.helper cache' requires Unix sockets, thus caching does not work on Windows. Storing token unencrypted as file instead. This is insecure and may only be used for testing purposes!"
         $credPath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "tempgitcred.txt")
-        $stdinForGitCreds = "protocol=https`nhost=dev.azure.com`nusername=any`npassword=$Token`n`n"
+        $stdinForGitCreds = "protocol=https`nhost=$GitHost`nusername=any`npassword=$Token`n`n"
         Write-Output $stdinForGitCreds | git credential-store --file "$credPath" store
         if ($LastExitCode -gt 0) { throw "git CLI error." }
         git config --global credential.helper "store --file $credPath"
         if ($LastExitCode -gt 0) { throw "git CLI error." }
-        Write-Host "Stored creds in $credPath."
+        Write-Host "Stored creds in $credPath for Host $GitHost."
         Get-Content $credPath | Write-Host
     }
 }
@@ -1120,7 +1123,7 @@ if ($Version) {
 
 if (![String]::IsNullOrEmpty($GitToken)) {
     Write-Host "GitToken is set for Terraform Modules."
-    Set-TokenForTerraformGitModules $GitToken
+    Set-TokenForTerraformGitModules $GitToken $GitHost
 } else {
     Write-Host "No GitToken set for Terraform Modules."
 }
