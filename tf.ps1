@@ -119,7 +119,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.12.0"
+$ScriptVersion = [version]"3.13.0"
 
 function Write-Log {
     [CmdletBinding()]
@@ -265,6 +265,7 @@ Write-Log "Current working location:       $CurrentLocation"
 Write-Log ""
 Write-Log "[Provided Options]"
 Write-Log "TargetPath:                     $TargetPath"
+Write-Log "TfVersion                       $TfVersion"
 Write-Log "EnvironmentName:                $EnvironmentName"
 Write-Log "Prefix:                         $Prefix"
 Write-Log "Location:                       $Location"
