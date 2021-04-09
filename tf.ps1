@@ -79,6 +79,9 @@ param (
     # Run Terraform init.
     [switch]$Init = $false,
 
+    # Run no upgrade in Terraform init.
+    [switch]$TFInitWithOutUpgrade = $false,
+
     # Run Terraform plan.
     [switch]$Plan = $false,
 
@@ -119,7 +122,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.13.0"
+$ScriptVersion = [version]"3.13.1"
 
 function Write-Log {
     [CmdletBinding()]
@@ -266,6 +269,7 @@ Write-Log ""
 Write-Log "[Provided Options]"
 Write-Log "TargetPath:                     $TargetPath"
 Write-Log "TfVersion                       $TfVersion"
+Write-Log "TFInitWihtOutUpgrade            $TFInitWithOutUpgrade"
 Write-Log "EnvironmentName:                $EnvironmentName"
 Write-Log "Prefix:                         $Prefix"
 Write-Log "Location:                       $Location"
@@ -1005,7 +1009,13 @@ function InitTerraformWithRemoteBackend {
         $key = $accountKeyResponse[0].value
 
         Start-NativeExecution { az storage container create --account-name $global:TfStateStorageAccountName --account-key $key --name $global:TfStateContainerName --auth-mode key --output none } -Retry -VerboseOutputOnError
-        Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -Retry -VerboseOutputOnError
+        if (!$TFInitWithOutUpgrade) {
+            Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -upgrade -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -Retry -VerboseOutputOnError
+        }
+        else {
+            Start-NativeExecution { &"$TerraformPath" init $TerraformNoColor -backend-config "resource_group_name=$UtilResourceGroupName" -backend-config "storage_account_name=$($global:TfStateStorageAccountName)" -backend-config "container_name=$($global:TfStateContainerName)" -backend-config "access_key=`"$key`"" } -Retry -VerboseOutputOnError
+        }  
+        
    }
     finally {
         Pop-Location
@@ -1022,7 +1032,12 @@ function InitTerraformWithLocalBackend {
     Push-Location
     try {
         Set-Location -Path $Path
-        Start-NativeExecution { &"$TerraformPath" init -backend=false $TerraformNoColor } -VerboseOutputOnError
+        if (!$TFInitWithOutUpgrade) {
+            Start-NativeExecution { &"$TerraformPath" init -upgrade -backend=false $TerraformNoColor } -VerboseOutputOnError
+        }
+        else {
+            Start-NativeExecution { &"$TerraformPath" init -backend=false $TerraformNoColor } -VerboseOutputOnError
+        }                    
     }
     finally {
         Pop-Location
@@ -1103,6 +1118,7 @@ function SendMetricsToApplicationInsights {
         'timestampUtc' = Get-Date -Format o
         'scriptVersion' = $ScriptVersion.ToString()
         'terraformVersion' = $TfVersion
+        'tfInitWihtOutUpgrade' = $TFInitWithOutUpgrade
         'teamFoundationCollectionUri' = $env:SYSTEM_TEAMFOUNDATIONCOLLECTIONURI
         'teamProject' = $env:SYSTEM_TEAMPROJECT
         'teamProjectId' = $env:SYSTEM_TEAMPROJECTID
