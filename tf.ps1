@@ -60,7 +60,7 @@ param (
     [Parameter(Mandatory = $false)][string]$UtilResourceGroupName = "",
 
     # The Terraform binary version to use.
-    [Parameter(Mandatory = $false)][string]$TfVersion = "0.14.6",
+    [Parameter(Mandatory = $false)][string]$TfVersion = "",
 
     # Application Insights Instrumentation Key for Metrics.
     [Parameter(Mandatory = $false)][string]$ApplicationInsightsInstrumentationKey = "",
@@ -122,7 +122,9 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.14.0"
+$ScriptVersion = [version]"3.14.1"
+#Define Defaultversion, if no parameter or un-expectec content in TfVersion is set
+$TfVersionDefault = "0.14.9"
 
 function Write-Log {
     [CmdletBinding()]
@@ -220,6 +222,14 @@ function Start-NativeExecution
     }
 }
 
+
+# Check Parameter TfVersion: It has include a valid version number. See https://semver.org/
+# warning and continue with the default.
+if (-not ($TfVersion -match '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'))
+{
+    Write-Warning "Found un-expected content in -TfVersion: $TfVersion . Fallback to default terraform version $TfVersionDefault"
+    $TfVersion = $TfVersionDefault
+}
 
 $TerrafomMinimumVersion = [version]$TfVersion
 $TerraformNoColor = if ($NoColor) { "-no-color" } else { "" }
