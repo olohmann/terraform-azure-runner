@@ -122,8 +122,9 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.14.1"
-#Define Defaultversion, if no parameter or un-expectec content in TfVersion is set
+$ScriptVersion = [version]"3.15.0"
+
+# Define default version, if no parameter or unexpected content in TfVersion is set.
 $TfVersionDefault = "0.14.9"
 
 function Write-Log {
@@ -222,12 +223,13 @@ function Start-NativeExecution
     }
 }
 
-
-# Check Parameter TfVersion: It has include a valid version number. See https://semver.org/
-# warning and continue with the default.
-if (-not ($TfVersion -match '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$'))
-{
-    Write-Warning "Found un-expected content in -TfVersion: $TfVersion . Fallback to default terraform version $TfVersionDefault"
+# Verify that parameter TfVersion is set to a valid version number. See https://semver.org/
+if ($TfVersion -eq "") {
+    Write-Host "Using default terraform version $TfVersionDefault"
+    $TfVersion = $TfVersionDefault
+}
+elseif (-not ($TfVersion -match '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$')) {
+    Write-Warning "Found un-expected content in parameter TfVersion: '$TfVersion'. Fallback to default terraform version $TfVersionDefault"
     $TfVersion = $TfVersionDefault
 }
 
