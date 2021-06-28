@@ -1152,7 +1152,7 @@ function GetTfCloudNameFromAzCloudName
         $azCloudName
     )
     
-    switch ($currentCloud) {
+    switch ($azCloudName) {
         "AzureChinaCloud" { return "china" }
         "AzureUSGovernment" { return "usgovernment" }
         "AzureGermanCloud" { return "german" }
