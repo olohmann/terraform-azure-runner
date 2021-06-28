@@ -1224,9 +1224,9 @@ else {
 }
 
 # Fix (non-public) Cloud -------------------------------------------------------
-$currentCloud = (az cloud show --query name -o tsv)
+$currentCloud = Start-NativeExecution { az cloud show --query "name" -o tsv }
 if ($currentCloud -ne "AzureCloud") { 
-    Write-Host "We detected that we are not on the public cloud."
+    Write-Host "Detected non-public cloud."
     $tfCloud = GetTfCloudNameFromAzCloudName -azCloudName $currentCloud
     if ($tfCloud) {
         Write-Warning "As non public clouds require additional configuration for azurerm provider and state backend, we will now amend their configuration by setting the ARM_ENVIRONMENT environment variable to value '$tfCloud'."
