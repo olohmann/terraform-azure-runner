@@ -1145,12 +1145,14 @@ function SendMetricsToApplicationInsights {
 }
 
 function GetTfCloudNameFromAzCloudName
-(
-    $azCloudName
-)
 {
-    switch ($currentCloud)
-    {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $azCloudName
+    )
+    
+    switch ($currentCloud) {
         "AzureChinaCloud" { return "china" }
         "AzureUSGovernment" { return "usgovernment" }
         "AzureGermanCloud" { return "german" }
@@ -1223,17 +1225,14 @@ else {
 
 # Fix (non-public) Cloud -------------------------------------------------------
 $currentCloud = (az cloud show --query name -o tsv)
-if ($currentCloud -ne "AzureCloud") 
-{ 
+if ($currentCloud -ne "AzureCloud") { 
     Write-Host "We detected that we are not on the public cloud."
     $tfCloud = GetTfCloudNameFromAzCloudName -azCloudName $currentCloud
-    if ($tfCloud)
-    {
+    if ($tfCloud) {
         Write-Warning "As non public clouds require additional configuration for azurerm provider and state backend, we will now amend their configuration by setting the ARM_ENVIRONMENT environment variable to value '$tfCloud'."
         $env:ARM_ENVIRONMENT = $tfCloud
     }
-    else 
-    {
+    else {
         Write-Warning "Unfortunately, we do not know how to translate current cloud $currentCloud to a terraform cloud name. We are thus NOT setting the ARM_ENVIRONMENT."
     }
 }
