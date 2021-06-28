@@ -1144,6 +1144,21 @@ function SendMetricsToApplicationInsights {
     SendTelemetry -Message "Metrics" -Severity "Information" -CustomProperties $metrics
 }
 
+function GetTfCloudNameFromAzCloudName
+(
+    $azCloudName
+)
+{
+    switch ($currentCloud)
+    {
+        "AzureChinaCloud" { return "china" }
+        "AzureUSGovernment" { return "usgovernment" }
+        "AzureGermanCloud" { return "german" }
+    }  
+
+    return $null
+}
+
 # ------------------------------------------------------------------------------
 if ($Version) {
     Write-Host $ScriptVersion
@@ -1204,6 +1219,23 @@ else {
 
     Write-Log "Setting TF_VAR_az_cli_user_object_id=$($user.objectId)"
     $env:TF_VAR_az_cli_user_object_id=$user.objectId
+}
+
+# Fix (non-public) Cloud -------------------------------------------------------
+$currentCloud = (az cloud show --query name -o tsv)
+if ($currentCloud -ne "AzureCloud") 
+{ 
+    Write-Host "We detected that we are not on the public cloud."
+    $tfCloud = GetTfCloudNameFromAzCloudName -azCloudName $currentCloud
+    if ($tfCloud)
+    {
+        Write-Warning "As non public clouds require additional configuration for azurerm provider and state backend, we will now amend their configuration by setting the ARM_ENVIRONMENT environment variable to value '$tfCloud'."
+        $env:ARM_ENVIRONMENT = $tfCloud
+    }
+    else 
+    {
+        Write-Warning "Unfortunately, we do not know how to translate current cloud $currentCloud to a terraform cloud name. We are thus NOT setting the ARM_ENVIRONMENT."
+    }
 }
 
 # Fix Environment --------------------------------------------------------------
