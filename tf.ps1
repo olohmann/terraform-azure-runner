@@ -122,10 +122,10 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"3.15.1"
+$ScriptVersion = [version]"3.16.0"
 
 # Define default version, if no parameter or unexpected content in TfVersion is set.
-$TfVersionDefault = "0.14.9"
+$TfVersionDefault = "0.14.11"
 
 function Write-Log {
     [CmdletBinding()]
@@ -1144,6 +1144,23 @@ function SendMetricsToApplicationInsights {
     SendTelemetry -Message "Metrics" -Severity "Information" -CustomProperties $metrics
 }
 
+function GetTfCloudNameFromAzCloudName
+{
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $azCloudName
+    )
+    
+    switch ($azCloudName) {
+        "AzureChinaCloud" { return "china" }
+        "AzureUSGovernment" { return "usgovernment" }
+        "AzureGermanCloud" { return "german" }
+    }  
+
+    return $null
+}
+
 # ------------------------------------------------------------------------------
 if ($Version) {
     Write-Host $ScriptVersion
@@ -1209,6 +1226,20 @@ else {
 
     Write-Log "Setting TF_VAR_az_cli_user_object_id=$($user.objectId)"
     $env:TF_VAR_az_cli_user_object_id=$user.objectId
+}
+
+# Fix (non-public) Cloud -------------------------------------------------------
+$currentCloud = Start-NativeExecution { az cloud show --query "name" -o tsv }
+if ($currentCloud -ne "AzureCloud") { 
+    Write-Host "Detected non-public cloud."
+    $tfCloud = GetTfCloudNameFromAzCloudName -azCloudName $currentCloud
+    if ($tfCloud) {
+        Write-Warning "As non public clouds require additional configuration for azurerm provider and state backend, we will now amend their configuration by setting the ARM_ENVIRONMENT environment variable to value '$tfCloud'."
+        $env:ARM_ENVIRONMENT = $tfCloud
+    }
+    else {
+        Write-Warning "Unfortunately, we do not know how to translate current cloud $currentCloud to a terraform cloud name. We are thus NOT setting the ARM_ENVIRONMENT."
+    }
 }
 
 # Fix Environment --------------------------------------------------------------
