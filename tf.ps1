@@ -125,7 +125,7 @@ $ErrorActionPreference = "Stop"
 $ScriptVersion = [version]"3.16.0"
 
 # Define default version, if no parameter or unexpected content in TfVersion is set.
-$TfVersionDefault = "0.14.11"
+$TfVersionDefault = "0.14.10"
 
 function Write-Log {
     [CmdletBinding()]
