@@ -1295,6 +1295,10 @@ if ($Init -or $Destroy -or $Plan -or $Apply -or $Output) {
                 TerraformPlan -Path $TargetPath
             }
             TerraformApply -Path $TargetPath
+
+            if ($Output) {
+                TerraformOutput -Path $TargetPath
+            }
         } 
         
         if ($Output) {
