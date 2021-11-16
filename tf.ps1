@@ -888,11 +888,12 @@ function CreateOrUpdateTerraformBackend {
    Start-NativeExecution { az storage account create --name $global:TfStateStorageAccountName `
         --resource-group $UtilResourceGroupName `
         --location $Location --sku "Standard_LRS" `
-        --kind "BlobStorage" --access-tier "Hot" `
+        --kind "StorageV2" --access-tier "Hot" `
         --encryption-service "blob" `
         --encryption-service "file" `
         --https-only "true" `
         --default-action "Allow" `
+        --allow-blob-public-access "false" `
         --bypass "None" `
         --output none `
         --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix" }
