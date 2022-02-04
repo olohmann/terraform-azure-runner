@@ -24,6 +24,6 @@ jobs:
       shell: pwsh
     - name: Execute Tests
       shell: pwsh
-      run: ./tests/tf.tests.ps1
+      run: ./tests/tf.tests_v0.14.10.ps1
       env:
        AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
