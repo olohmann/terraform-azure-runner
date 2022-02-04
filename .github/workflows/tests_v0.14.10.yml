@@ -1,0 +1,29 @@
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - "*.md"
+      - "docs/**"
+jobs:
+  test:
+    name: Run Integration Tests
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@master
+    - name: Azure Login
+      uses: Azure/login@v1
+      with:
+       creds: ${{ secrets.AZURE_CREDENTIALS }}
+    - name: Install Pester
+      run: Install-Module -Name Pester -Force
+      shell: pwsh
+    - name: Execute Tests
+      shell: pwsh
+      run: ./tests/tf.tests.ps1
+      env:
+       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
