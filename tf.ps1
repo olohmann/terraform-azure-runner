@@ -122,7 +122,7 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"4.1.0"
+$ScriptVersion = [version]"4.2.0"
 
 # Define default version, if no parameter or unexpected content in TfVersion is set.
 $TfVersionDefault = "1.1.5"
@@ -253,7 +253,7 @@ if ($UtilResourceGroupName -eq "") {
 $CurrentLocation = Get-Location
 if ($Location -match $CurrentLocation)
 {
-    Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'"
+    Write-Warning "Found un-expected content in -Location: $Location . Fallback to 'westeurope'. Please verify that you have passed the variable correctly."
     $Location = "westeurope"
 }
 
@@ -265,7 +265,7 @@ $Location = $Location -Replace " "
 if ($Location -match '\$\([^)]*\)')
 {
     $Location = "westeurope"
-    Write-Warning "Found un-expanded Azure DevOps Variable assigned to -Location. Fallback to 'westeurope'"
+    Write-Warning "Found un-expanded Azure DevOps Variable assigned to -Location. Fallback to 'westeurope'. Please verify that you have passed the variable correctly."
 }
 
 $TargetPath = Resolve-Path $TargetPath
@@ -924,14 +924,15 @@ function CreateOrUpdateTerraformBackend {
 
     $global:TfStateStorageAccountName = "tf$($Prefix)$($EnvironmentName)$($tf_hash_suffix)"
 
-   Start-NativeExecution { az storage account create --name $global:TfStateStorageAccountName `
+    Start-NativeExecution { az storage account create --name $global:TfStateStorageAccountName `
         --resource-group $UtilResourceGroupName `
         --location $Location --sku "Standard_LRS" `
-        --kind "BlobStorage" --access-tier "Hot" `
+        --kind "StorageV2" --access-tier "Hot" `
         --encryption-service "blob" `
         --encryption-service "file" `
         --https-only "true" `
         --default-action "Allow" `
+        --allow-blob-public-access "false" `
         --bypass "None" `
         --output none `
         --tags "environment=$EnvironmentName" "purpose=TerraformStateStorage" "prefix=$Prefix" }
