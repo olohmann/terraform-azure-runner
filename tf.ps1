@@ -122,10 +122,10 @@ param (
 
 Set-StrictMode -Version latest
 $ErrorActionPreference = "Stop"
-$ScriptVersion = [version]"4.0.0"
+$ScriptVersion = [version]"4.1.0"
 
 # Define default version, if no parameter or unexpected content in TfVersion is set.
-$TfVersionDefault = "1.0.5"
+$TfVersionDefault = "1.1.5"
 
 function Write-Log {
     [CmdletBinding()]
