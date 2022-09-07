@@ -85,3 +85,4 @@ override.tf.json
 
 # End of https://www.gitignore.io/api/terraform
 
+tests/simple/01_tf/terraform.tfplan
