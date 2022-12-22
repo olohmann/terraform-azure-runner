@@ -931,6 +931,7 @@ function CreateOrUpdateTerraformBackend {
         --encryption-service "blob" `
         --encryption-service "file" `
         --https-only "true" `
+        --min-tls-version "TLS1_2" `
         --default-action "Allow" `
         --allow-blob-public-access "false" `
         --bypass "None" `
@@ -1299,13 +1300,18 @@ if ($Version) {
     return
 }
 
-if (![String]::IsNullOrEmpty($GitToken)) {
-    Write-Host "GitToken is set for Terraform Modules."
-    Set-TokenForTerraformGitModules $GitToken $GitHost
-} else {
+if ($GitToken -eq "") {
     Write-Host "No GitToken set for Terraform Modules."
 }
-
+elseif ($GitToken -match '^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})$') {
+    Write-Host "GitToken is set for Terraform Modules."
+    Set-TokenForTerraformGitModules $GitToken $GitHost
+}
+else {
+    Write-Warning "Found un-expected content in parameter GitToken."
+    $GitToken = ""
+}
+    
 # Prepare Terraform Environment ------------------------------------------------
 if ($Validate) {
     Write-Log "Validate only, skipping Azure Backend configuration check."
