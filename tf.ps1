@@ -931,6 +931,7 @@ function CreateOrUpdateTerraformBackend {
         --encryption-service "blob" `
         --encryption-service "file" `
         --https-only "true" `
+        --min-tls-version "TLS1_2" `
         --default-action "Allow" `
         --allow-blob-public-access "false" `
         --bypass "None" `
